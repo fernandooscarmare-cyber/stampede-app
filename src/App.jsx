@@ -2792,7 +2792,7 @@ export default function App() {
   const [screen, setScreen] = useState("wod");
 
   useEffect(() => {
-    db.getSessionUser().then((u) => { setUser(u); setCheckingSession(false); });
+    db.getSessionUser().then((u) => { setUser(u); setCheckingSession(false); }).catch(() => setCheckingSession(false));
 
     const unsubscribe = db.onAuthChange((session) => {
       if (session === null) {
