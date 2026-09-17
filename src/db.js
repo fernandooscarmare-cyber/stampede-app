@@ -69,9 +69,16 @@ export async function signOut() {
 export async function getSessionUser() {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) return null;
-  const profile = await ensureProfile(session.user);
-  if (!profile) return null;
-  return { ...profile, email: session.user.email };
+  try {
+    const profile = await ensureProfile(session.user);
+    if (!profile) return null;
+    return { ...profile, email: session.user.email };
+  } catch (e) {
+    // Sesión de una cuenta que quedó a medias (sin perfil armable) -> la
+    // tratamos como si no hubiera sesión, en vez de trabar la app.
+    await supabase.auth.signOut();
+    return null;
+  }
 }
 
 export function onAuthChange(callback) {
