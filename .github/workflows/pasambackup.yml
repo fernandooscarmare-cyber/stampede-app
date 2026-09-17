@@ -7,10 +7,8 @@
 # 2. En GitHub: Settings del repo → Secrets and variables → Actions
 #    → "New repository secret":
 #       Nombre:  SUPABASE_DB_URL
-#       Valor:   la "Connection string" de tu proyecto (la sacás en
-#                Supabase → Project Settings → Database → Connection
-#                string → modo "URI"). Usá la que dice "Session pooler"
-#                o la directa, cualquiera de las dos sirve para esto.
+#       Valor:   la "Connection string" de tu proyecto (Session pooler
+#                o la directa, cualquiera de las dos sirve para esto).
 # 3. Listo. Corre solo todos los domingos a las 4am (hora Argentina).
 #    También podés ejecutarlo manualmente desde la pestaña "Actions"
 #    de GitHub cuando quieras, con el botón "Run workflow".
@@ -32,8 +30,12 @@ jobs:
   backup:
     runs-on: ubuntu-latest
     steps:
-      - name: Instalar cliente de PostgreSQL
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Instalar cliente de PostgreSQL 17 (igual a la versión de Supabase)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y postgresql-client-17
 
       - name: Generar nombre de archivo con fecha
         run: echo "FILENAME=backup-$(date +%Y-%m-%d).sql" >> $GITHUB_ENV
@@ -41,7 +43,7 @@ jobs:
       - name: Exportar la base de datos completa
         env:
           DB_URL: ${{ secrets.SUPABASE_DB_URL }}
-        run: pg_dump "$DB_URL" --no-owner --no-privileges -F p -f "${{ env.FILENAME }}"
+        run: /usr/lib/postgresql/17/bin/pg_dump "$DB_URL" --no-owner --no-privileges -F p -f "${{ env.FILENAME }}"
 
       - name: Guardar la copia como artifact
         uses: actions/upload-artifact@v4
