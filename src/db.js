@@ -4,6 +4,25 @@ import { supabase } from "./supabaseClient";
    AUTH
    ============================================================ */
 
+async function ensureProfile(authUser) {
+  let profile = await getProfile(authUser.id);
+  if (profile) return profile;
+
+  const meta = authUser.user_metadata || {};
+  const { error } = await supabase.from("profiles").insert({
+    id: authUser.id,
+    username: meta.username,
+    name: meta.name,
+    role: meta.role || "atleta",
+    coach_username: null,
+  });
+  if (error) {
+    if (error.code === "23505") throw new Error("Ese usuario ya existe.");
+    throw error;
+  }
+  return await getProfile(authUser.id);
+}
+
 export async function signUp({ email, password, name, username, role }) {
   const key = username.trim().toLowerCase();
 
@@ -16,32 +35,30 @@ export async function signUp({ email, password, name, username, role }) {
   if (checkErr && checkErr.code !== "PGRST116") throw checkErr;
   if (existing) throw new Error("Ese usuario ya existe.");
 
-  const { data, error } = await supabase.auth.signUp({ email, password });
+  const { data, error } = await supabase.auth.signUp({
+    email, password,
+    options: { data: { name, username: key, role } },
+  });
   if (error) throw error;
-  const userId = data.user?.id;
-  if (!userId) {
-    // Con confirmación de mail activada, puede no haber sesión todavía.
+
+  if (!data.session) {
+    // "Confirm email" está activado: todavía no hay sesión. El perfil se
+    // crea solo la primera vez que haya una sesión real (ver ensureProfile
+    // en signIn / getSessionUser), una vez que confirme el mail.
     throw new Error(
       "Cuenta creada. Revisá tu mail para confirmarla y después iniciá sesión."
     );
   }
 
-  const { error: profileErr } = await supabase.from("profiles").insert({
-    id: userId,
-    username: key,
-    name,
-    role,
-    coach_username: null,
-  });
-  if (profileErr) throw profileErr;
-
-  return { id: userId, email, name, username: key, role, coachUsername: null };
+  // "Confirm email" está desactivado: ya hay sesión activa, creamos el perfil ya.
+  const profile = await ensureProfile(data.user);
+  return { ...profile, email: data.user.email };
 }
 
 export async function signIn({ email, password }) {
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) throw error;
-  const profile = await getProfile(data.user.id);
+  const profile = await ensureProfile(data.user);
   return { ...profile, email: data.user.email };
 }
 
@@ -52,7 +69,7 @@ export async function signOut() {
 export async function getSessionUser() {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) return null;
-  const profile = await getProfile(session.user.id);
+  const profile = await ensureProfile(session.user);
   if (!profile) return null;
   return { ...profile, email: session.user.email };
 }
