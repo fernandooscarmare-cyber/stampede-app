@@ -294,6 +294,25 @@ function beep(freq = 880, dur = 150, type = "sine", vol = 0.32) {
   } catch (e) {}
 }
 
+// Los celulares solo permiten "destrabar" el audio si pasa en el mismo
+// instante en que el usuario toca algo. Se llama directo en el onClick
+// del botón Start, antes de la cuenta regresiva, para que los beeps que
+// vienen después (con un retraso de por medio) no queden silenciados.
+function primeAudio() {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+    // un beep inaudible (volumen 0) para "despertar" el audio de una vez
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    gain.gain.value = 0.0001;
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.05);
+  } catch (e) {}
+}
+
 // Mantiene la pantalla encendida mientras un timer está corriendo (si el
 // navegador lo soporta). Se libera solo al pausar/desmontar.
 function useWakeLock(active) {
@@ -2284,7 +2303,7 @@ function ForTimeTimer({ user }) {
     setRunning(true);
     beep(880, 150);
   };
-  const start = () => { elapsed > 0 ? reallyStart() : pre.start(reallyStart); };
+  const start = () => { primeAudio(); elapsed > 0 ? reallyStart() : pre.start(reallyStart); };
   const pause = () => { setRunning(false); };
   const reset = () => { setRunning(false); setElapsed(0); capHitRef.current = false; lastWarnRef.current = null; setShowLink(false); };
 
@@ -2366,7 +2385,7 @@ function EmomTimer() {
     setRunning(true);
     beep(880, 200, "square");
   };
-  const start = () => pre.start(reallyStart);
+  const start = () => { primeAudio(); pre.start(reallyStart); };
   const stop = () => setRunning(false);
   const reset = () => { setRunning(false); setRound(1); setRemaining(intervalSec); };
 
@@ -2433,7 +2452,7 @@ function AmrapTimer({ user }) {
     setRunning(true);
     beep(880, 200);
   };
-  const start = () => pre.start(reallyStart);
+  const start = () => { primeAudio(); pre.start(reallyStart); };
   const pause = () => setRunning(false);
   const reset = () => { setRunning(false); setRemaining(minutes * 60); setRounds(0); doneRef.current = false; lastWarnRef.current = null; setShowLink(false); };
 
@@ -2525,7 +2544,7 @@ function TabataTimer() {
     setRunning(true);
     beep(880, 200, "square");
   };
-  const start = () => pre.start(reallyStart);
+  const start = () => { primeAudio(); pre.start(reallyStart); };
   const stop = () => setRunning(false);
   const reset = () => { setRunning(false); setRound(1); setPhase("work"); setRemaining(work); };
 
