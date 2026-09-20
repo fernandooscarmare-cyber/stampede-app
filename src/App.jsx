@@ -277,9 +277,10 @@ function defaultPlanOwner(user) {
 /* ---------------------------- audio beep ---------------------------- */
 
 let audioCtx = null;
-function beep(freq = 880, dur = 150, type = "sine", vol = 0.25) {
+function beep(freq = 880, dur = 150, type = "sine", vol = 0.32) {
   try {
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume();
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
     osc.type = type;
@@ -291,6 +292,37 @@ function beep(freq = 880, dur = 150, type = "sine", vol = 0.25) {
     gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur / 1000);
     osc.stop(audioCtx.currentTime + dur / 1000 + 0.02);
   } catch (e) {}
+}
+
+// Mantiene la pantalla encendida mientras un timer está corriendo (si el
+// navegador lo soporta). Se libera solo al pausar/desmontar.
+function useWakeLock(active) {
+  const lockRef = useRef(null);
+
+  useEffect(() => {
+    if (!active || !("wakeLock" in navigator)) return;
+    let cancelled = false;
+
+    const request = async () => {
+      try {
+        const lock = await navigator.wakeLock.request("screen");
+        if (cancelled) { lock.release(); return; }
+        lockRef.current = lock;
+      } catch (e) { /* el navegador lo puede rechazar, no pasa nada grave */ }
+    };
+    request();
+
+    const onVisibility = () => {
+      if (document.visibilityState === "visible" && active && !lockRef.current) request();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVisibility);
+      if (lockRef.current) { lockRef.current.release().catch(() => {}); lockRef.current = null; }
+    };
+  }, [active]);
 }
 
 /* ============================== ESTILOS ============================== */
@@ -324,15 +356,16 @@ function GlobalStyle() {
         --rust-tint: #3a1f1c; --rust-ink: #e2574c;
       }
       * { box-sizing: border-box; }
-      body { margin: 0; }
-      #root { min-height: 100vh; }
+      html, body { margin: 0; height: 100%; overscroll-behavior: none; }
+      #root { height: 100%; }
       .box-app {
         font-family: 'Barlow', sans-serif;
         background:
           radial-gradient(circle at 1.5px 1.5px, rgba(238,244,243,0.035) 1px, transparent 0) 0 0/14px 14px,
           var(--bg);
         color: var(--ink);
-        min-height: 100vh;
+        height: 100vh;
+        height: 100dvh;
         width: 100%;
         display: flex;
         flex-direction: column;
@@ -485,7 +518,39 @@ function GlobalStyle() {
         background: var(--amber-tint); color: var(--amber-ink); flex-shrink: 0;
         clip-path: polygon(7px 0, 100% 0, 100% 100%, 0 100%, 0 7px);
       }
+      @keyframes stampede-run {
+        from { transform: translateX(260px); }
+        to { transform: translateX(-40px); }
+      }
+      .box-card, .wod-row, .stat-chip, .greeting-card { transition: border-color 0.15s ease, transform 0.1s ease; }
+      .wod-row:hover { border-left-color: var(--olive); }
+      .icon-btn-circle { transition: background 0.12s ease, transform 0.08s ease; }
+      .icon-btn-circle:hover { background: var(--line); transform: translateY(-1px); }
+      .box-navitem, .box-bottomitem, .week-day { transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease; }
     `}</style>
+  );
+}
+
+function StampedeLoaderAnim() {
+  const horses = [
+    { size: 30, top: "18%", delay: 0, duration: 2.1, opacity: 0.55 },
+    { size: 44, top: "38%", delay: 0.25, duration: 1.7, opacity: 0.85 },
+    { size: 56, top: "58%", delay: 0.1, duration: 1.95, opacity: 1 },
+    { size: 22, top: "8%", delay: 0.5, duration: 2.4, opacity: 0.35 },
+  ];
+  return (
+    <div style={{ textAlign: "center" }}>
+      <div style={{ position: "relative", width: 260, height: 110, margin: "0 auto", overflow: "hidden" }}>
+        {horses.map((h, i) => (
+          <span key={i} style={{
+            position: "absolute", top: h.top, left: 0, fontSize: h.size, lineHeight: 1,
+            color: "var(--amber)", opacity: h.opacity,
+            animation: `stampede-run ${h.duration}s linear infinite`, animationDelay: `${h.delay}s`,
+          }}>♞</span>
+        ))}
+      </div>
+      <p className="box-muted" style={{ marginTop: 4 }}>Cargando…</p>
+    </div>
   );
 }
 
@@ -790,8 +855,9 @@ function LinkCoachForm({ user, onLinked, compact }) {
     if (!code.trim()) return;
     setBusy(true);
     try {
-      const coachUsername = await db.linkCoach(user.id, code);
-      onLinked(coachUsername);
+      await db.linkCoach(user.id, code);
+      setCode("");
+      onLinked();
     } catch (err) {
       setError(err.message || "No pudimos vincular con ese coach.");
     } finally {
@@ -1324,7 +1390,7 @@ function wodIconFor(tipo = "") {
   return Dumbbell;
 }
 
-function WodBoard({ user, onUserUpdate }) {
+function WodBoard({ user, onUserUpdate, onCoachesReload }) {
   const [rawWods, setRawWods] = useState(null);
   const [loading, setLoading] = useState(true);
   const [filterDate, setFilterDate] = useState("");
@@ -1337,6 +1403,10 @@ function WodBoard({ user, onUserUpdate }) {
   const [formComment, setFormComment] = useState("");
   const [rmCount, setRmCount] = useState(0);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  const [repeatingId, setRepeatingId] = useState(null);
+  const [repeatDate, setRepeatDate] = useState(todayKey());
+  const [comparingRow, setComparingRow] = useState(null);
+  const [lineage, setLineage] = useState(null);
 
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -1357,24 +1427,23 @@ function WodBoard({ user, onUserUpdate }) {
   const [importErr, setImportErr] = useState("");
 
   const isCoach = user.role === "coach";
-  const hasOwnCoach = !!user.coachUsername;
-  const [viewMode, setViewMode] = useState("own");
-  const [coachId, setCoachId] = useState(null);
+  const coaches = user.coaches || [];
+  const sources = useMemo(() => {
+    const list = isCoach ? [{ key: "own", label: "Mi planificación", coachId: user.id, editable: true }] : [];
+    coaches.forEach((c) => list.push({ key: c.username, label: isCoach ? `Plan de ${c.name}` : c.name, coachId: c.id, editable: false }));
+    return list;
+  }, [isCoach, coaches, user.id]);
 
+  const [sourceKey, setSourceKey] = useState(null);
   useEffect(() => {
-    if (isCoach && hasOwnCoach && viewMode === "coach") {
-      db.getProfileByUsername(user.coachUsername).then((p) => setCoachId(p?.id || null));
+    if (sources.length && (!sourceKey || !sources.some((s) => s.key === sourceKey))) {
+      setSourceKey(sources[0].key);
     }
-  }, [isCoach, hasOwnCoach, viewMode, user.coachUsername]);
+  }, [sources, sourceKey]);
 
-  useEffect(() => {
-    if (!isCoach && user.coachUsername) {
-      db.getProfileByUsername(user.coachUsername).then((p) => setCoachId(p?.id || null));
-    }
-  }, [isCoach, user.coachUsername]);
-
-  const planOwnerId = isCoach ? (viewMode === "coach" && hasOwnCoach ? coachId : user.id) : coachId;
-  const canEdit = isCoach && viewMode === "own";
+  const activeSource = sources.find((s) => s.key === sourceKey) || null;
+  const planOwnerId = activeSource?.coachId || null;
+  const canEdit = !!activeSource?.editable;
 
   useEffect(() => {
     db.listRmRecords(user.id).then((r) => setRmCount(r.length));
@@ -1385,7 +1454,6 @@ function WodBoard({ user, onUserUpdate }) {
   }, [isCoach, user.id]);
 
   const loadWods = useCallback(async () => {
-    if (planOwnerId === undefined) return;
     if (!planOwnerId) { setLoading(false); setRawWods([]); return; }
     setLoading(true);
     const list = await db.listWods(planOwnerId);
@@ -1480,6 +1548,24 @@ function WodBoard({ user, onUserUpdate }) {
     setConfirmDeleteId(null);
   };
 
+  const doRepeat = async (row) => {
+    await db.repeatWod(row, repeatDate, planOwnerId);
+    await loadWods();
+    setRepeatingId(null);
+  };
+
+  const openCompare = async (row) => {
+    setComparingRow(row);
+    setLineage(null);
+    const lin = await db.listWodLineage(row, planOwnerId);
+    const results = await db.listResultsForWods(lin.map((w) => w.id), user.id);
+    const byWod = {};
+    results.forEach((r) => { (byWod[r.wodId] = byWod[r.wodId] || []).push(r); });
+    setLineage(lin.map((w) => ({ ...w, myResults: (byWod[w.id] || []).sort((a, b) => b.savedAt - a.savedAt) })));
+  };
+
+  const closeCompare = () => { setComparingRow(null); setLineage(null); };
+
   const doImport = async () => {
     if (!importUrl.trim()) return;
     setImporting(true);
@@ -1512,11 +1598,11 @@ function WodBoard({ user, onUserUpdate }) {
     setImporting(false);
   };
 
-  if (!isCoach && !user.coachUsername) {
+  if (!isCoach && coaches.length === 0) {
     return (
       <div>
         <h1 className="box-h1" style={{ marginBottom: 14 }}>Planificación</h1>
-        <LinkCoachForm user={user} onLinked={(coachUsername) => onUserUpdate({ coachUsername })} />
+        <LinkCoachForm user={user} onLinked={onCoachesReload} />
       </div>
     );
   }
@@ -1541,10 +1627,11 @@ function WodBoard({ user, onUserUpdate }) {
 
       <QuoteOfDay />
 
-      {isCoach && hasOwnCoach && (
-        <div style={{ display: "flex", gap: 6, marginBottom: 18 }}>
-          <button className={`box-tabbtn ${viewMode === "own" ? "active" : ""}`} onClick={() => setViewMode("own")}>Mi planificación</button>
-          <button className={`box-tabbtn ${viewMode === "coach" ? "active" : ""}`} onClick={() => setViewMode("coach")}>Plan de mi coach</button>
+      {sources.length > 1 && (
+        <div style={{ display: "flex", gap: 6, marginBottom: 18, flexWrap: "wrap" }}>
+          {sources.map((s) => (
+            <button key={s.key} className={`box-tabbtn ${sourceKey === s.key ? "active" : ""}`} onClick={() => setSourceKey(s.key)}>{s.label}</button>
+          ))}
         </div>
       )}
 
@@ -1649,6 +1736,51 @@ function WodBoard({ user, onUserUpdate }) {
 
       <WeekStrip selectedDate={filterDate} onSelect={setFilterDate} markedDates={markedDates} />
 
+      {comparingRow && (
+        <div className="box-card" style={{ marginBottom: 18, borderLeft: "3px solid var(--amber)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <h3 className="box-h3">Comparar: {comparingRow.tipo}</h3>
+            <button className="icon-btn-circle" style={{ width: 28, height: 28 }} onClick={closeCompare}><X size={14} /></button>
+          </div>
+          {lineage === null ? (
+            <p className="box-muted">Cargando…</p>
+          ) : lineage.length < 2 ? (
+            <p className="box-muted">Este WOD todavía no se repitió en otra fecha. Usá "Repetir" para volver a programarlo y poder comparar la evolución.</p>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {lineage.map((w, i) => {
+                const best = w.myResults[0];
+                const prev = i > 0 ? lineage[i - 1].myResults[0] : null;
+                return (
+                  <div className="rm-row" key={w.id}>
+                    <div>
+                      <b>{formatHuman(new Date(w.dateKey + "T00:00:00"))}</b>
+                      {w.dateKey === comparingRow.dateKey && <span className="box-badge" style={{ marginLeft: 8 }}>Este</span>}
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      {best ? (
+                        <>
+                          <div style={{ fontWeight: 700 }}>{formatResultValue(best)} <span className="box-muted" style={{ fontWeight: 400 }}>({best.scaling})</span></div>
+                          {prev && prev.time && best.time && (
+                            <div className="box-muted" style={{ fontSize: 11 }}>
+                              {parseClockSeconds(best.time) != null && parseClockSeconds(prev.time) != null
+                                ? (parseClockSeconds(best.time) < parseClockSeconds(prev.time) ? "más rápido que la vez anterior" : "más lento que la vez anterior")
+                                : null}
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <span className="box-muted">Sin resultado anotado</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {loading && <p className="box-muted">Cargando planificación…</p>}
 
       {!loading && filtered.length === 0 && (
@@ -1678,21 +1810,36 @@ function WodBoard({ user, onUserUpdate }) {
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <span className="box-muted">{formatHuman(row.date)}</span>
-                  {canEdit && (
-                    <div style={{ display: "flex", gap: 6 }}>
-                      <button className="icon-btn-circle" style={{ width: 28, height: 28 }} onClick={() => openEditForm(row)} title="Editar"><Pencil size={13} /></button>
-                      {confirmDeleteId === row.id ? (
-                        <>
-                          <button className="box-btn box-btn-danger" style={{ padding: "4px 10px", fontSize: 12 }} onClick={() => deleteWod(row.id)}>Sí, borrar</button>
-                          <button className="box-btn box-btn-ghost" style={{ padding: "4px 10px", fontSize: 12 }} onClick={() => setConfirmDeleteId(null)}>Cancelar</button>
-                        </>
-                      ) : (
-                        <button className="icon-btn-circle" style={{ width: 28, height: 28 }} onClick={() => setConfirmDeleteId(row.id)} title="Borrar"><Trash2 size={13} /></button>
-                      )}
-                    </div>
-                  )}
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button className="icon-btn-circle" style={{ width: 28, height: 28 }} onClick={() => openCompare(row)} title="Comparar con otra fecha"><BarChart3 size={13} /></button>
+                    {canEdit && (
+                      <>
+                        <button className="icon-btn-circle" style={{ width: 28, height: 28 }} onClick={() => { setRepeatingId(row.id); setRepeatDate(todayKey()); }} title="Repetir en otra fecha"><Repeat size={13} /></button>
+                        <button className="icon-btn-circle" style={{ width: 28, height: 28 }} onClick={() => openEditForm(row)} title="Editar"><Pencil size={13} /></button>
+                        {confirmDeleteId === row.id ? (
+                          <>
+                            <button className="box-btn box-btn-danger" style={{ padding: "4px 10px", fontSize: 12 }} onClick={() => deleteWod(row.id)}>Sí, borrar</button>
+                            <button className="box-btn box-btn-ghost" style={{ padding: "4px 10px", fontSize: 12 }} onClick={() => setConfirmDeleteId(null)}>Cancelar</button>
+                          </>
+                        ) : (
+                          <button className="icon-btn-circle" style={{ width: 28, height: 28 }} onClick={() => setConfirmDeleteId(row.id)} title="Borrar"><Trash2 size={13} /></button>
+                        )}
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
+
+              {repeatingId === row.id && (
+                <div style={{ marginTop: 10, display: "flex", gap: 8, alignItems: "flex-end", background: "var(--panel-2)", padding: 10 }}>
+                  <div>
+                    <label className="box-label">Repetir este WOD el</label>
+                    <input className="box-input" type="date" value={repeatDate} onChange={(e) => setRepeatDate(e.target.value)} />
+                  </div>
+                  <button className="box-btn box-btn-primary" onClick={() => doRepeat(row)}><Check size={14} /> Repetir</button>
+                  <button className="box-btn box-btn-ghost" onClick={() => setRepeatingId(null)}><X size={14} /></button>
+                </div>
+              )}
 
               {row.movilidad && <div className="wod-section"><span className="wod-section-label">Movilidad</span><div className="wod-desc">{row.movilidad}</div></div>}
               {row.core && <div className="wod-section"><span className="wod-section-label">Core</span><div className="wod-desc">{row.core}</div></div>}
@@ -2013,14 +2160,13 @@ function LinkResultToWod({ user, kind, value, onDone, onCancel }) {
 
   useEffect(() => {
     (async () => {
-      let coachId = user.role === "coach" ? user.id : null;
-      if (!coachId && user.coachUsername) {
-        const p = await db.getProfileByUsername(user.coachUsername);
-        coachId = p?.id || null;
-      }
-      if (!coachId) { setWods([]); return; }
-      const list = await db.listWods(coachId);
-      const sorted = list.slice().sort((a, b) => (b.dateKey || "").localeCompare(a.dateKey || "")).slice(0, 20);
+      const coachIds = [];
+      if (user.role === "coach") coachIds.push(user.id);
+      (user.coaches || []).forEach((c) => { if (c.id) coachIds.push(c.id); });
+      if (coachIds.length === 0) { setWods([]); return; }
+      const lists = await Promise.all(coachIds.map((id) => db.listWods(id)));
+      const merged = lists.flat();
+      const sorted = merged.slice().sort((a, b) => (b.dateKey || "").localeCompare(a.dateKey || "")).slice(0, 30);
       setWods(sorted);
       const today = todayKey();
       const todays = sorted.find((w) => w.dateKey === today);
@@ -2050,7 +2196,7 @@ function LinkResultToWod({ user, kind, value, onDone, onCancel }) {
     return (
       <div className="box-card">
         <p className="box-muted">
-          {user.role === "coach" || user.coachUsername ? "Todavía no hay ningún WOD cargado para vincular este resultado." : "Vinculate con tu coach (en Ajustes) para poder guardar resultados en un WOD."}
+          {user.role === "coach" || (user.coaches || []).length > 0 ? "Todavía no hay ningún WOD cargado para vincular este resultado." : "Vinculate con un coach (en Ajustes) para poder guardar resultados en un WOD."}
         </p>
         <button className="box-btn box-btn-ghost" style={{ marginTop: 10 }} onClick={onCancel}>Cerrar</button>
       </div>
@@ -2111,6 +2257,7 @@ function ForTimeTimer({ user }) {
   const capHitRef = useRef(false);
   const lastWarnRef = useRef(null);
   const pre = usePreStartCountdown(3);
+  useWakeLock(running || pre.counting);
 
   useTicker(running, () => {
     const now = Date.now();
@@ -2189,6 +2336,7 @@ function EmomTimer() {
   const lastRoundRef = useRef(1);
   const lastBeepSecRef = useRef(null);
   const pre = usePreStartCountdown(3);
+  useWakeLock(running || pre.counting);
 
   useTicker(running, () => {
     const elapsed = (Date.now() - startRef.current) / 1000;
@@ -2260,6 +2408,7 @@ function AmrapTimer({ user }) {
   const doneRef = useRef(false);
   const lastWarnRef = useRef(null);
   const pre = usePreStartCountdown(3);
+  useWakeLock(running || pre.counting);
 
   useTicker(running, () => {
     const elapsed = (Date.now() - startRef.current) / 1000;
@@ -2336,6 +2485,7 @@ function TabataTimer() {
   const lastPhaseKeyRef = useRef(null);
   const lastWarnRef = useRef(null);
   const pre = usePreStartCountdown(3);
+  useWakeLock(running || pre.counting);
 
   const cycle = work + rest;
 
@@ -2436,23 +2586,15 @@ function TimerScreen({ user }) {
 
 /* ============================== SETTINGS ============================== */
 
-function SettingsScreen({ user, onLogout, onUserUpdate }) {
-  const [coachName, setCoachName] = useState(null);
+function SettingsScreen({ user, onLogout, onUserUpdate, onCoachesReload }) {
   const [showPolicy, setShowPolicy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const coaches = user.coaches || [];
 
-  useEffect(() => {
-    if (user.coachUsername) {
-      db.getProfileByUsername(user.coachUsername).then((p) => setCoachName(p?.name || user.coachUsername));
-    } else {
-      setCoachName(null);
-    }
-  }, [user.coachUsername]);
-
-  const unlink = async () => {
-    await db.unlinkCoach(user.id);
-    onUserUpdate({ coachUsername: null });
+  const unlink = async (coachUsername) => {
+    await db.unlinkCoach(user.id, coachUsername);
+    onCoachesReload();
   };
 
   const becomeCoach = async () => {
@@ -2495,18 +2637,21 @@ function SettingsScreen({ user, onLogout, onUserUpdate }) {
       )}
 
       <div className="box-card" style={{ marginBottom: 18 }}>
-        <h2 className="box-h2" style={{ marginBottom: 8 }}>Tu coach</h2>
+        <h2 className="box-h2" style={{ marginBottom: 8 }}>Tus coaches</h2>
         {user.role === "coach" && (
-          <p className="box-muted" style={{ marginBottom: 10 }}>¿Vos también entrenás con un coach? Vinculate y vas a tener tu propia pestaña de WOD, RM y estadísticas como cualquier atleta.</p>
+          <p className="box-muted" style={{ marginBottom: 10 }}>¿Vos también entrenás con uno o más coaches? Vinculate con cada uno y vas a poder alternar entre sus planes desde la pestaña WOD.</p>
         )}
-        {user.coachUsername ? (
-          <>
-            <p className="box-muted" style={{ marginBottom: 12 }}>Vinculado con <b style={{ color: "var(--ink)" }}>{coachName}</b> ({user.coachUsername})</p>
-            <button className="box-btn box-btn-danger" onClick={unlink}><Unlink2 size={14} /> Desvincular</button>
-          </>
-        ) : (
-          <LinkCoachForm user={user} onLinked={(coachUsername) => onUserUpdate({ coachUsername })} compact />
+        {coaches.length > 0 && (
+          <div style={{ marginBottom: 14 }}>
+            {coaches.map((c) => (
+              <div className="rm-row" key={c.username}>
+                <span>{c.name} <span className="box-muted">({c.username})</span></span>
+                <button className="box-btn box-btn-danger" style={{ padding: "5px 12px", fontSize: 12 }} onClick={() => unlink(c.username)}><Unlink2 size={13} /> Desvincular</button>
+              </div>
+            ))}
+          </div>
         )}
+        <LinkCoachForm user={user} onLinked={onCoachesReload} compact />
       </div>
 
       <div className="box-card" style={{ marginBottom: 18 }}>
@@ -2718,7 +2863,7 @@ function CoachAthletes({ user }) {
   }, [athletes]);
 
   const unlinkAthlete = async (athleteId) => {
-    await db.unlinkAthlete(athleteId);
+    await db.unlinkAthlete(athleteId, user.username);
     setSelected(null);
     load();
   };
@@ -2791,8 +2936,14 @@ export default function App() {
   const [passwordRecovery, setPasswordRecovery] = useState(false);
   const [screen, setScreen] = useState("wod");
 
+  const attachCoaches = async (baseUser) => {
+    if (!baseUser) return null;
+    const coaches = await db.listMyCoaches(baseUser.id).catch(() => []);
+    return { ...baseUser, coaches };
+  };
+
   useEffect(() => {
-    db.getSessionUser().then((u) => { setUser(u); setCheckingSession(false); }).catch(() => setCheckingSession(false));
+    db.getSessionUser().then(attachCoaches).then((u) => { setUser(u); setCheckingSession(false); }).catch(() => setCheckingSession(false));
 
     const unsubscribe = db.onAuthChange((session) => {
       if (session === null) {
@@ -2808,6 +2959,10 @@ export default function App() {
   }, []);
 
   const updateUser = (patch) => setUser((u) => ({ ...u, ...patch }));
+  const reloadCoaches = async () => {
+    const coaches = await db.listMyCoaches(user.id).catch(() => []);
+    updateUser({ coaches });
+  };
   const logout = async () => { await db.signOut(); setUser(null); };
   const navItems = user ? NAV.filter((n) => !n.coachOnly || user.role === "coach") : [];
 
@@ -2816,7 +2971,7 @@ export default function App() {
       <div className="box-app">
         <GlobalStyle />
         <div className="box-topstripe" />
-        <div className="box-auth-wrap"><span className="box-muted">Cargando…</span></div>
+        <div className="box-auth-wrap"><StampedeLoaderAnim /></div>
       </div>
     );
   }
@@ -2836,7 +2991,7 @@ export default function App() {
       <GlobalStyle />
       <div className="box-topstripe" />
       {!user ? (
-        <AuthScreen onLogin={setUser} />
+        <AuthScreen onLogin={(u) => attachCoaches(u).then(setUser)} />
       ) : (
         <>
           <div className="box-shell">
@@ -2859,12 +3014,12 @@ export default function App() {
             </div>
 
             <div className="box-main">
-              {screen === "wod" && <WodBoard user={user} onUserUpdate={updateUser} />}
+              {screen === "wod" && <WodBoard user={user} onUserUpdate={updateUser} onCoachesReload={reloadCoaches} />}
               {screen === "rm" && <RmTracker user={user} />}
               {screen === "stats" && <StatsScreen user={user} />}
               {screen === "timer" && <TimerScreen user={user} />}
               {screen === "athletes" && user.role === "coach" && <CoachAthletes user={user} />}
-              {screen === "settings" && <SettingsScreen user={user} onLogout={logout} onUserUpdate={updateUser} />}
+              {screen === "settings" && <SettingsScreen user={user} onLogout={logout} onUserUpdate={updateUser} onCoachesReload={reloadCoaches} />}
             </div>
           </div>
 

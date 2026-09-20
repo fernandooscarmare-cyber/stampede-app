@@ -112,7 +112,7 @@ export async function getProfile(userId) {
     .maybeSingle();
   if (error) throw error;
   if (!data) return null;
-  return { id: data.id, username: data.username, name: data.name, role: data.role, coachUsername: data.coach_username };
+  return { id: data.id, username: data.username, name: data.name, role: data.role };
 }
 
 export async function getProfileByUsername(username) {
@@ -136,28 +136,44 @@ export async function linkCoach(userId, coachUsername) {
   if (!coach || coach.role !== "coach") {
     throw new Error("No encontramos un coach con ese usuario.");
   }
-  const { error } = await supabase.from("profiles").update({ coach_username: key }).eq("id", userId);
-  if (error) throw error;
+  const { error } = await supabase.from("coach_links").insert({ athlete_id: userId, coach_username: key });
+  if (error) {
+    if (error.code === "23505") throw new Error("Ya estás vinculado con ese coach.");
+    throw error;
+  }
   return key;
 }
 
-export async function unlinkCoach(userId) {
-  const { error } = await supabase.from("profiles").update({ coach_username: null }).eq("id", userId);
+export async function listMyCoaches(userId) {
+  const { data, error } = await supabase
+    .from("coach_links")
+    .select("coach_username, profiles!coach_links_coach_username_fkey(name, username, id)")
+    .eq("athlete_id", userId);
+  if (error) throw error;
+  return (data || []).map((r) => ({
+    username: r.coach_username,
+    name: r.profiles?.name || r.coach_username,
+    id: r.profiles?.id,
+  }));
+}
+
+export async function unlinkCoach(userId, coachUsername) {
+  const { error } = await supabase.from("coach_links").delete().eq("athlete_id", userId).eq("coach_username", coachUsername);
   if (error) throw error;
 }
 
-export async function unlinkAthlete(athleteUserId) {
-  const { error } = await supabase.from("profiles").update({ coach_username: null }).eq("id", athleteUserId);
+export async function unlinkAthlete(athleteUserId, coachUsername) {
+  const { error } = await supabase.from("coach_links").delete().eq("athlete_id", athleteUserId).eq("coach_username", coachUsername);
   if (error) throw error;
 }
 
 export async function listMyAthletes(coachUsername) {
   const { data, error } = await supabase
-    .from("profiles")
-    .select("id, username, name, role")
+    .from("coach_links")
+    .select("profiles!coach_links_athlete_id_fkey(id, username, name, role)")
     .eq("coach_username", coachUsername);
   if (error) throw error;
-  return data || [];
+  return (data || []).map((r) => r.profiles).filter(Boolean);
 }
 
 // Borra los datos de la cuenta (RM, WODs, resultados, planilla se van solos
@@ -228,6 +244,7 @@ function mapWodRow(w) {
     estructura: w.estructura || "",
     wod: w.wod_content,
     extraNotes: w.extra_notes || "",
+    originWodId: w.origin_wod_id || null,
   };
 }
 
@@ -256,6 +273,7 @@ export async function createWod(coachId, payload) {
       estructura: payload.estructura || null,
       wod_content: payload.wod,
       extra_notes: payload.extraNotes || null,
+      origin_wod_id: payload.originWodId || null,
     })
     .select()
     .single();
@@ -288,6 +306,25 @@ export async function updateWod(id, payload) {
 export async function deleteWod(id) {
   const { error } = await supabase.from("wods").delete().eq("id", id);
   if (error) throw error;
+}
+
+// Repetir un WOD en otra fecha, enlazado al original para poder compararlos.
+export async function repeatWod(sourceWod, newDateKey, coachId) {
+  const originId = sourceWod.originWodId || sourceWod.id;
+  return createWod(coachId, { ...sourceWod, dateKey: newDateKey, originWodId: originId });
+}
+
+// Todas las repeticiones de un mismo WOD (mismo origen), ordenadas por fecha.
+export async function listWodLineage(wod, coachId) {
+  const originId = wod.originWodId || wod.id;
+  const { data, error } = await supabase
+    .from("wods")
+    .select("*")
+    .eq("coach_id", coachId)
+    .or(`id.eq.${originId},origin_wod_id.eq.${originId}`)
+    .order("wod_date", { ascending: true });
+  if (error) throw error;
+  return (data || []).map(mapWodRow);
 }
 
 export async function importWodsFromRows(coachId, rows) {
@@ -343,6 +380,20 @@ export async function listResultsForWod(wodId, userId) {
     .from("wod_results")
     .select("*, wods(wod_date, tipo, wod_content)")
     .eq("wod_id", wodId)
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data || []).map(mapResultRow);
+}
+
+// Resultados propios para varios WODs a la vez (para comparar una misma
+// rutina repetida en distintas fechas).
+export async function listResultsForWods(wodIds, userId) {
+  if (!wodIds.length) return [];
+  const { data, error } = await supabase
+    .from("wod_results")
+    .select("*, wods(wod_date, tipo, wod_content)")
+    .in("wod_id", wodIds)
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
   if (error) throw error;
