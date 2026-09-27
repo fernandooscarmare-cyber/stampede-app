@@ -422,31 +422,29 @@ function GlobalStyle() {
   return (
     <style>{`
       :root {
-        --bg: #0d1417;
-        --panel: #141d21;
-        --panel-2: #1b262b;
-        --line: #263338;
-        --ink: #eef4f3;
-        --ink-dim: #85999a;
+        --bg: #0b1113;
+        --panel: #151d20;
+        --panel-2: #1a2327;
+        --line: #26333a;
+        --ink: #eef5f3;
+        --ink-dim: #8aa19c;
         --amber: #22d3b8;
-        --amber-dim: #124a41;
-        --rust: #e2574c;
-        --olive: #7fce9c;
-        --radius: 2px;
-        --cut: 14px;
-        --cut-sm: 8px;
-        --amber-tint: #12332f; --amber-ink: #22d3b8;
-        --olive-tint: #1c3324; --olive-ink: #7fce9c;
-        --rust-tint: #3a1f1c; --rust-ink: #e2574c;
+        --amber-dim: #1a3a36;
+        --rust: #ef6a5f;
+        --olive: #9ad178;
+        --radius: 14px;
+        --radius-lg: 20px;
+        --radius-pill: 20px;
+        --amber-tint: #1a3a36; --amber-ink: #22d3b8;
+        --olive-tint: #233521; --olive-ink: #9ad178;
+        --rust-tint: #3a2220; --rust-ink: #ef6a5f;
       }
       * { box-sizing: border-box; }
       html, body { margin: 0; height: 100%; overscroll-behavior: none; }
       #root { height: 100%; }
       .box-app {
         font-family: 'Barlow', sans-serif;
-        background:
-          radial-gradient(circle at 1.5px 1.5px, rgba(238,244,243,0.035) 1px, transparent 0) 0 0/14px 14px,
-          var(--bg);
+        background: var(--bg);
         color: var(--ink);
         height: 100vh;
         height: 100dvh;
@@ -455,10 +453,7 @@ function GlobalStyle() {
         flex-direction: column;
         overflow: hidden;
       }
-      .box-topstripe {
-        height: 7px; flex-shrink: 0;
-        background: repeating-linear-gradient(-45deg, var(--amber) 0 8px, var(--bg) 8px 16px);
-      }
+      .box-topstripe { display: none; }
       .brand-word {
         font-family: 'Rajdhani', sans-serif; font-weight: 700; letter-spacing: 0.02em;
         transform: skewX(-8deg); display: inline-block;
@@ -493,7 +488,8 @@ function GlobalStyle() {
       .box-main { flex: 1; overflow-y: auto; padding: 22px 26px 90px 26px; }
       .box-bottomnav {
         display: none; position: sticky; bottom: 0; background: var(--panel);
-        border-top: 2px solid var(--amber); padding: 6px 4px;
+        border-top: 1px solid var(--line); padding: 6px 4px;
+        border-radius: var(--radius-lg) var(--radius-lg) 0 0;
       }
       @media (max-width: 720px) {
         .box-sidebar { display: none; }
@@ -504,15 +500,15 @@ function GlobalStyle() {
       .box-bottomitem.active { color: var(--amber); }
       .box-card {
         background: var(--panel); border: 1px solid var(--line); padding: 18px;
-        clip-path: polygon(var(--cut) 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 0 100%, 0 var(--cut));
+        border-radius: var(--radius-lg);
         position: relative;
       }
       .box-btn {
         font-family: 'Rajdhani', sans-serif; font-weight: 700; font-size: 14px;
         text-transform: uppercase; letter-spacing: 0.05em;
-        padding: 11px 22px; border: 1px solid transparent; cursor: pointer;
+        padding: 12px 22px; border: 1px solid transparent; cursor: pointer;
         display: inline-flex; align-items: center; gap: 8px; justify-content: center;
-        clip-path: polygon(var(--cut-sm) 0, 100% 0, 100% calc(100% - var(--cut-sm)), calc(100% - var(--cut-sm)) 100%, 0 100%, 0 var(--cut-sm));
+        border-radius: var(--radius);
         transition: filter 0.1s ease, transform 0.05s ease;
       }
       .box-btn:active { transform: scale(0.97); }
@@ -523,31 +519,31 @@ function GlobalStyle() {
       .box-btn-danger { background: transparent; color: var(--rust); border-color: var(--rust); }
       .box-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
       .box-input {
-        width: 100%; padding: 11px 14px; border: 1px solid var(--line); border-radius: var(--radius);
-        background: var(--bg); color: var(--ink); font-family: 'Barlow', sans-serif; font-size: 14px;
+        width: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius);
+        background: var(--panel-2); color: var(--ink); font-family: 'Barlow', sans-serif; font-size: 14px;
       }
       .box-input:focus { outline: none; border-color: var(--amber); }
       .box-label { font-family: 'Rajdhani', sans-serif; font-size: 12px; font-weight: 600; color: var(--ink-dim); margin-bottom: 5px; display: block; text-transform: uppercase; letter-spacing: 0.06em; }
       .box-field { margin-bottom: 14px; }
-      .box-select { width: 100%; padding: 11px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); color: var(--ink); font-family: 'Barlow', sans-serif; font-size: 14px; }
-      .box-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; padding: 3px 9px; background: var(--olive-tint); color: var(--olive-ink); font-weight: 700; border-left: 2px solid var(--olive); text-transform: uppercase; letter-spacing: 0.05em; font-family: 'Rajdhani', sans-serif; }
+      .box-select { width: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-2); color: var(--ink); font-family: 'Barlow', sans-serif; font-size: 14px; }
+      .box-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; padding: 4px 11px; background: var(--olive-tint); color: var(--olive-ink); font-weight: 700; border-radius: var(--radius-pill); text-transform: uppercase; letter-spacing: 0.05em; font-family: 'Rajdhani', sans-serif; }
       .box-error { color: var(--rust); font-size: 13px; margin-top: 6px; }
       .box-success { color: var(--olive); font-size: 13px; margin-top: 6px; }
       .box-muted { color: var(--ink-dim); font-size: 13px; }
       .box-divider { height: 1px; background: var(--line); margin: 16px 0; }
       .box-auth-wrap { flex: 1; display: flex; align-items: center; justify-content: center; padding: 30px 16px; }
       .box-auth-card { width: 100%; max-width: 340px; }
-      .box-tabbtn { flex: 1; padding: 10px; border: 1px solid var(--line); cursor: pointer; font-family: 'Rajdhani', sans-serif; font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; background: var(--panel-2); color: var(--ink-dim); }
-      .box-tabbtn.active { background: var(--amber-dim); color: var(--amber); border-color: var(--amber); }
+      .box-tabbtn { flex: 1; padding: 10px; border: none; cursor: pointer; font-family: 'Rajdhani', sans-serif; font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; background: var(--panel-2); color: var(--ink-dim); border-radius: var(--radius-pill); }
+      .box-tabbtn.active { background: var(--amber-dim); color: var(--amber); }
       .whiteboard { display: flex; flex-direction: column; gap: 14px; }
       .wod-row {
-        border: 1px solid var(--line); border-left: 3px solid var(--amber); padding: 16px 18px;
-        background: var(--panel);
+        border: 1px solid var(--line); padding: 18px;
+        background: var(--panel); border-radius: var(--radius-lg);
       }
       .wod-type {
         font-family: 'Rajdhani', sans-serif; font-weight: 700; font-size: 12px; color: var(--amber);
-        text-transform: uppercase; letter-spacing: 0.08em; background: transparent; border: 1px solid var(--amber-dim);
-        padding: 3px 10px; display: inline-block;
+        text-transform: uppercase; letter-spacing: 0.08em; background: var(--amber-dim); border: none;
+        padding: 4px 12px; display: inline-block; border-radius: var(--radius-pill);
       }
       .wod-desc { white-space: pre-wrap; line-height: 1.5; margin-top: 10px; font-size: 14.5px; }
       .wod-section { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line); }
@@ -563,44 +559,46 @@ function GlobalStyle() {
       .week-strip-days { display: flex; gap: 4px; }
       .week-day {
         flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px;
-        padding: 10px 0; border: 1px solid var(--line); border-top: 2px solid transparent; background: var(--panel);
+        padding: 10px 0; border: 1px solid var(--line); background: var(--panel);
         cursor: pointer; color: var(--ink-dim); position: relative; font-family: 'Barlow', sans-serif;
+        border-radius: var(--radius);
       }
-      .week-day.active { background: var(--amber-dim); color: var(--amber); border-top-color: var(--amber); }
+      .week-day.active { background: var(--amber-dim); color: var(--amber); border-color: var(--amber); }
       .week-day-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
       .week-day-num { font-family: 'Rajdhani', sans-serif; font-weight: 700; font-size: 17px; }
-      .week-day-dot { width: 4px; height: 4px; background: var(--amber); position: absolute; bottom: 5px; }
+      .week-day-dot { width: 4px; height: 4px; background: var(--amber); border-radius: 50%; position: absolute; bottom: 5px; }
       .week-day.active .week-day-dot { background: var(--amber); }
       .icon-btn-circle {
         width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
         background: var(--panel-2); border: 1px solid var(--line); color: var(--ink); cursor: pointer;
-        clip-path: polygon(6px 0, 100% 0, 100% 100%, 0 100%, 0 6px);
+        border-radius: 50%;
       }
       .greeting-card {
         display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px;
-        background: var(--panel); border: 1px solid var(--line); border-top: 3px solid var(--amber);
-        padding: 16px 18px;
+        background: var(--panel); border: 1px solid var(--line);
+        padding: 16px 18px; border-radius: var(--radius-lg);
       }
       .greeting-left { display: flex; align-items: center; gap: 12px; }
       .avatar-circle {
-        width: 40px; height: 40px; background: var(--amber-dim); color: var(--amber);
+        width: 40px; height: 40px; background: linear-gradient(135deg, var(--amber), #0f8a78); color: #0a1412;
         display: flex; align-items: center; justify-content: center; font-family: 'Rajdhani', sans-serif;
-        font-weight: 700; font-size: 17px; flex-shrink: 0; border: 1px solid var(--amber);
-        clip-path: polygon(8px 0, 100% 0, 100% 100%, 0 100%, 0 8px);
+        font-weight: 700; font-size: 17px; flex-shrink: 0; border: none;
+        border-radius: 50%;
       }
       .greeting-name { font-family: 'Rajdhani', sans-serif; font-weight: 700; font-size: 18px; letter-spacing: 0.01em; }
       .stats-row { display: flex; gap: 10px; margin-bottom: 18px; flex-wrap: wrap; }
       .stat-chip {
         flex: 1 1 140px; display: flex; align-items: center; gap: 10px;
         background: var(--panel); border: 1px solid var(--line); padding: 12px 14px;
+        border-radius: var(--radius-lg);
       }
-      .stat-icon-circle { width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; clip-path: polygon(6px 0, 100% 0, 100% 100%, 0 100%, 0 6px); }
+      .stat-icon-circle { width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; border-radius: 50%; }
       .stat-chip-value { font-family: 'Rajdhani', sans-serif; font-weight: 700; font-size: 18px; line-height: 1.1; }
       .stat-chip-label { font-size: 11px; color: var(--ink-dim); margin-top: 2px; }
       .wod-icon-circle {
         width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;
         background: var(--amber-tint); color: var(--amber-ink); flex-shrink: 0;
-        clip-path: polygon(7px 0, 100% 0, 100% 100%, 0 100%, 0 7px);
+        border-radius: 50%;
       }
       @keyframes stampede-run {
         from { transform: translateX(260px); }
@@ -2811,7 +2809,7 @@ function SettingsScreen({ user, onLogout, onUserUpdate, onCoachesReload }) {
         <div className="box-card" style={{ marginBottom: 18 }}>
           <h2 className="box-h2" style={{ marginBottom: 8 }}>Tu código para atletas</h2>
           <p className="box-muted" style={{ marginBottom: 10 }}>Compartí este usuario con tus atletas para que se vinculen con vos desde sus Ajustes. La planificación la cargás desde la pestaña <b>WOD</b>.</p>
-          <div style={{ background: "var(--panel-2)", border: "1px solid var(--amber)", padding: "10px 14px", fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 19, letterSpacing: "0.03em", display: "inline-flex", alignItems: "center", gap: 8, color: "var(--amber)", clipPath: "polygon(8px 0, 100% 0, 100% 100%, 0 100%, 0 8px)" }}>
+          <div style={{ background: "var(--panel-2)", border: "1px solid var(--amber)", padding: "10px 14px", fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 19, letterSpacing: "0.03em", display: "inline-flex", alignItems: "center", gap: 8, color: "var(--amber)", borderRadius: "var(--radius)" }}>
             <Users size={16} color="var(--amber)" /> {user.username}
           </div>
         </div>
