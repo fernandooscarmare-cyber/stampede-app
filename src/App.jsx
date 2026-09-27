@@ -495,6 +495,7 @@ function GlobalStyle() {
         .box-sidebar { display: none; }
         .box-bottomnav { display: flex; justify-content: space-around; }
         .box-main { padding: 16px 14px 16px 14px; }
+        .box-input, .box-select, textarea.box-input { font-size: 16px; }
       }
       .box-bottomitem { display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 10px; color: var(--ink-dim); background: none; border: none; padding: 8px 10px; font-family: 'Rajdhani', sans-serif; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; }
       .box-bottomitem.active { color: var(--amber); }
