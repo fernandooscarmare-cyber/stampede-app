@@ -8,7 +8,7 @@ import {
   LogOut, Plus, X, Check, TrendingUp, ChevronLeft, ChevronRight, User,
   Eye, EyeOff, Trash2, Flame, ClipboardList, KeyRound,
   Zap, CheckCircle2, Clock, Repeat, Users, Link2, Unlink2, ArrowUpRight, Pencil, Upload, BarChart3,
-  Download, ShieldCheck, AlertTriangle,
+  Download, ShieldCheck, AlertTriangle, Percent,
 } from "lucide-react";
 import * as db from "./db";
 import { supabase } from "./supabaseClient";
@@ -40,16 +40,80 @@ function defaultUnitFor(exercise) {
   return "kg";
 }
 
-const NAV = [
+// Los coaches siempre usan esta navegación (crean contenido para todas las
+// modalidades desde acá, sin importar la modalidad de su propio perfil).
+const NAV_CROSSFIT = [
   { id: "wod", label: "WOD", icon: ClipboardList },
   { id: "rm", label: "RM", icon: Dumbbell },
   { id: "stats", label: "Stats", icon: BarChart3 },
   { id: "timer", label: "Timer", icon: TimerIcon },
+  { id: "routines", label: "Rutinas", icon: Repeat, coachOnly: true },
   { id: "athletes", label: "Atletas", icon: Users, coachOnly: true },
+  { id: "settings", label: "Ajustes", icon: SettingsIcon },
+];
+// Atletas de GAP / Musculación
+const NAV_ROUTINE = [
+  { id: "wod", label: "Hoy", icon: ClipboardList },
+  { id: "rm", label: "Progreso", icon: TrendingUp },
+  { id: "timer", label: "Timer", icon: TimerIcon },
+  { id: "settings", label: "Ajustes", icon: SettingsIcon },
+];
+// Atletas de Hyrox
+const NAV_HYROX = [
+  { id: "wod", label: "Hoy", icon: ClipboardList },
+  { id: "stations", label: "Estaciones", icon: Dumbbell },
+  { id: "stats", label: "Stats", icon: BarChart3 },
   { id: "settings", label: "Ajustes", icon: SettingsIcon },
 ];
 
 const WOD_TYPE_PRESETS = ["For Time", "AMRAP", "EMOM", "OTM", "Tabata", "Fuerza", "Otro"];
+
+const MODALITIES = [
+  { id: "crossfit", label: "Crossfit" },
+  { id: "gap", label: "GAP" },
+  { id: "musculacion", label: "Musculación" },
+  { id: "hibrido", label: "Híbrido" },
+  { id: "hyrox", label: "Hyrox" },
+];
+function modalityLabel(id) {
+  return MODALITIES.find((m) => m.id === id)?.label || "Crossfit";
+}
+
+const ROUTINE_SPLITS = {
+  gap: ["Glúteos", "Abdominales", "Piernas", "Full body"],
+  musculacion: ["Push", "Pull", "Legs", "Superior", "Inferior", "Full body"],
+};
+const WEEKDAYS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+const WEEKDAYS_SHORT = ["D", "L", "M", "X", "J", "V", "S"];
+
+// Hyrox: formato fijo de carrera — 8 corridas de 1km alternadas con las 8 estaciones.
+const HYROX_SEGMENTS = [
+  { name: "Run 1km", type: "run" },
+  { name: "SkiErg 1000m", type: "station" },
+  { name: "Run 1km", type: "run" },
+  { name: "Sled Push 50m", type: "station" },
+  { name: "Run 1km", type: "run" },
+  { name: "Sled Pull 50m", type: "station" },
+  { name: "Run 1km", type: "run" },
+  { name: "Burpee Broad Jump 80m", type: "station" },
+  { name: "Run 1km", type: "run" },
+  { name: "Row 1000m", type: "station" },
+  { name: "Run 1km", type: "run" },
+  { name: "Farmers Carry 200m", type: "station" },
+  { name: "Run 1km", type: "run" },
+  { name: "Sandbag Lunges 100m", type: "station" },
+  { name: "Run 1km", type: "run" },
+  { name: "Wall Balls 100", type: "station" },
+];
+const HYROX_STATIONS = HYROX_SEGMENTS.filter((s) => s.type === "station").map((s) => s.name);
+
+function fmtRaceClock(totalSeconds) {
+  const s = Math.max(0, totalSeconds);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = Math.floor(s % 60);
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}` : `${m}:${String(sec).padStart(2, "0")}`;
+}
 
 const MOTIVATIONAL_QUOTES = [
   "El dolor que sentís hoy va a ser la fuerza que sientas mañana.",
@@ -267,7 +331,8 @@ function formatResultValue(n) {
   const parts = [];
   if (n.time) parts.push(n.time);
   if (n.rounds != null && n.rounds !== "") parts.push(`${n.rounds}${n.reps ? `+${n.reps}` : ""} rondas`);
-  return parts.length ? parts.join(" · ") : "—";
+  if (parts.length) return parts.join(" · ");
+  return n.completed ? "Completado" : "—";
 }
 
 function defaultPlanOwner(user) {
@@ -652,6 +717,7 @@ function PrivacyPolicyText() {
 function AuthScreen({ onLogin }) {
   const [mode, setMode] = useState("login"); // login | signup | recover
   const [role, setRole] = useState("atleta");
+  const [modality, setModality] = useState("crossfit");
   const [name, setName] = useState("");
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
@@ -683,7 +749,7 @@ function AuthScreen({ onLogin }) {
     if (!acceptedPolicy) { setError("Tenés que aceptar la política de privacidad para crear la cuenta."); return; }
     setBusy(true);
     try {
-      const user = await db.signUp({ email, password, name, username, role });
+      const user = await db.signUp({ email, password, name, username, role, modality: role === "atleta" ? modality : "crossfit" });
       onLogin(user);
     } catch (err) {
       if (err.message && err.message.includes("Revisá tu mail")) {
@@ -773,6 +839,23 @@ function AuthScreen({ onLogin }) {
                 </button>
               </div>
             </div>
+            {role === "atleta" && (
+              <div className="box-field">
+                <label className="box-label">Modalidad</label>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {MODALITIES.map((m) => (
+                    <button key={m.id} type="button" className={`box-tabbtn ${modality === m.id ? "active" : ""}`} onClick={() => setModality(m.id)}>
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+                {modality !== "crossfit" && (
+                  <p className="box-muted" style={{ marginTop: 8, fontSize: 12 }}>
+                    Estamos terminando de armar la experiencia de {modalityLabel(modality)}. Vas a poder crear tu cuenta y usar la app; algunas pantallas todavía están en construcción para esta modalidad.
+                  </p>
+                )}
+              </div>
+            )}
             <div className="box-field">
               <label className="box-label">Nombre</label>
               <input className="box-input" value={name} onChange={(e) => setName(e.target.value)} />
@@ -1526,6 +1609,11 @@ function WodBoard({ user, onUserUpdate, onCoachesReload }) {
     setOpenRow(null);
   };
 
+  const markComplete = async (row) => {
+    await db.markWodComplete(row.id, user.id);
+    await loadResults();
+  };
+
   const openNewForm = () => {
     setEditingId(null);
     setFormDate(filterDate || todayKey());
@@ -1702,9 +1790,10 @@ function WodBoard({ user, onUserUpdate, onCoachesReload }) {
             <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
               <button type="button" className={`box-tabbtn ${formSkillType === "Gimnástico" ? "active" : ""}`} onClick={() => setFormSkillType("Gimnástico")}>Gimnástico</button>
               <button type="button" className={`box-tabbtn ${formSkillType === "Olímpico" ? "active" : ""}`} onClick={() => setFormSkillType("Olímpico")}>Olímpico</button>
+              <button type="button" className={`box-tabbtn ${formSkillType === "Fuerza" ? "active" : ""}`} onClick={() => setFormSkillType("Fuerza")}>Fuerza</button>
             </div>
             <textarea className="box-input" rows={2} style={{ resize: "vertical", fontFamily: "'Barlow', sans-serif" }}
-              placeholder={formSkillType === "Gimnástico" ? "Ej: 5x3 strict pull-ups" : "Ej: 5x2 power snatch técnica"}
+              placeholder={formSkillType === "Gimnástico" ? "Ej: 5x3 strict pull-ups" : formSkillType === "Olímpico" ? "Ej: 5x2 power snatch técnica" : "Ej: 5x5 Back Squat @ 75%"}
               value={formSkillContent} onChange={(e) => setFormSkillContent(e.target.value)} />
           </div>
 
@@ -1871,7 +1960,13 @@ function WodBoard({ user, onUserUpdate, onCoachesReload }) {
                 <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
                   {rowNotes.map((n) => (
                     <div key={n.id} className="box-muted" style={{ background: "var(--panel-2)", padding: "8px 10px", borderRadius: 8 }}>
-                      <b style={{ color: "var(--ink)" }}>{formatResultValue(n)}</b> · {n.scaling}
+                      {n.completed && !n.time && n.rounds == null ? (
+                        <b style={{ color: "var(--olive)", display: "inline-flex", alignItems: "center", gap: 5 }}><Check size={13} /> Completado (sin resultado cargado)</b>
+                      ) : (
+                        <>
+                          <b style={{ color: "var(--ink)" }}>{formatResultValue(n)}</b>{n.scaling ? <> · {n.scaling}</> : null}
+                        </>
+                      )}
                       {n.comment ? <div style={{ marginTop: 3 }}>{n.comment}</div> : null}
                     </div>
                   ))}
@@ -1912,9 +2007,20 @@ function WodBoard({ user, onUserUpdate, onCoachesReload }) {
                   </div>
                 </div>
               ) : (
-                <button className="box-btn box-btn-ghost" style={{ marginTop: 10 }} onClick={() => setOpenRow(row.id)}>
-                  <Plus size={14} /> Anotar resultado
-                </button>
+                <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap", alignItems: "center" }}>
+                  <button className="box-btn box-btn-ghost" onClick={() => setOpenRow(row.id)}>
+                    <Plus size={14} /> Anotar resultado
+                  </button>
+                  {rowNotes.some((n) => n.completed) ? (
+                    <span className="box-badge" style={{ background: "var(--olive-tint)", color: "var(--olive)", borderLeftColor: "var(--olive)" }}>
+                      <Check size={12} /> Completado
+                    </span>
+                  ) : (
+                    <button className="box-btn box-btn-ghost" onClick={() => markComplete(row)} title="Para cuando entrenaste pero no hay resultado numérico para cargar">
+                      <Check size={14} /> Marcar como completo
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           );
@@ -1925,6 +2031,60 @@ function WodBoard({ user, onUserUpdate, onCoachesReload }) {
 }
 
 /* ============================== RM TRACKER ============================== */
+
+function RmPercentCalculator({ exercises, byExercise }) {
+  const withRecords = useMemo(() => exercises.filter((ex) => (byExercise[ex] || []).length > 0), [exercises, byExercise]);
+  const [ex, setEx] = useState(withRecords[0] || "");
+  const [pct, setPct] = useState(80);
+
+  useEffect(() => {
+    if (withRecords.length && !withRecords.includes(ex)) setEx(withRecords[0]);
+  }, [withRecords, ex]);
+
+  const best = useMemo(() => {
+    const list = byExercise[ex] || [];
+    if (!list.length) return null;
+    return list.reduce((max, r) => (r.weight > max.weight ? r : max), list[0]);
+  }, [byExercise, ex]);
+
+  const result = best && pct !== "" ? Math.round(best.weight * (Number(pct) / 100) * 10) / 10 : null;
+
+  return (
+    <div className="box-card" style={{ marginBottom: 18 }}>
+      <h2 className="box-h2" style={{ marginBottom: 8 }}>Calculadora de %</h2>
+      {withRecords.length === 0 ? (
+        <p className="box-muted">Cargá al menos un RM (arriba) para poder calcular porcentajes sobre él.</p>
+      ) : (
+        <>
+          <p className="box-muted" style={{ marginBottom: 12 }}>
+            Elegí el ejercicio y el % que te pide el WOD (ej: Back Squat al 80%) — calculamos el peso sobre tu mejor marca registrada.
+          </p>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
+            <div style={{ flex: "1 1 200px" }}>
+              <label className="box-label">Ejercicio</label>
+              <select className="box-select" value={ex} onChange={(e) => setEx(e.target.value)}>
+                {withRecords.map((name) => <option key={name}>{name}</option>)}
+              </select>
+            </div>
+            <div style={{ width: 100 }}>
+              <label className="box-label">%</label>
+              <input className="box-input" type="number" value={pct} onChange={(e) => setPct(e.target.value)} />
+            </div>
+          </div>
+          {best && (
+            <div className="stat-chip" style={{ marginTop: 14, display: "inline-flex" }}>
+              <div className="stat-icon-circle" style={{ background: "var(--amber-tint)", color: "var(--amber-ink)" }}><Percent size={16} /></div>
+              <div>
+                <div className="stat-chip-value">{result != null ? `${result} ${best.unit}` : "—"}</div>
+                <div className="stat-chip-label">{pct || 0}% de {best.weight}{best.unit} ({ex})</div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
 
 function RmTracker({ user }) {
   const [records, setRecords] = useState(null);
@@ -2055,6 +2215,8 @@ function RmTracker({ user }) {
           <button className="box-btn box-btn-ghost" onClick={addCustomExercise}>Agregar</button>
         </div>
       </div>
+
+      <RmPercentCalculator exercises={exercises} byExercise={byExercise} />
 
       <div className="box-card">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
@@ -2947,6 +3109,686 @@ function CoachAthletes({ user }) {
   );
 }
 
+/* ============================== MODALIDADES EN CONSTRUCCIÓN ============================== */
+
+function ModalityComingSoon({ modality }) {
+  return (
+    <div>
+      <h1 className="box-h1" style={{ marginBottom: 14 }}>{modalityLabel(modality)}</h1>
+      <div className="box-card">
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+          <AlertTriangle size={16} color="var(--amber)" />
+          <h2 className="box-h2" style={{ margin: 0 }}>Estamos armando esta experiencia</h2>
+        </div>
+        <p className="box-muted">
+          Elegiste <b style={{ color: "var(--ink)" }}>{modalityLabel(modality)}</b> al crear tu cuenta. Las pantallas de WOD, RM,
+          estadísticas y timer para esta modalidad todavía están en construcción — muy pronto vas a tenerlas activas acá mismo,
+          sin tener que hacer nada de tu lado. Mientras tanto podés usar Ajustes con normalidad.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/* ============================== TIMER DE DESCANSO (GAP / Musculación) ============================== */
+
+function RestTimer() {
+  const PRESETS = [30, 60, 90];
+  const [preset, setPreset] = useState(60);
+  const [custom, setCustom] = useState(60);
+  const [remaining, setRemaining] = useState(60);
+  const [running, setRunning] = useState(false);
+  const startRef = useRef(null);
+  const doneRef = useRef(false);
+  const pre = usePreStartCountdown(3);
+  useWakeLock(running || pre.counting);
+
+  useTicker(running, () => {
+    const elapsed = (Date.now() - startRef.current) / 1000;
+    const rem = preset - elapsed;
+    setRemaining(rem);
+    if (rem <= 0 && !doneRef.current) {
+      doneRef.current = true;
+      beep(660, 500, "square");
+      setRunning(false);
+    }
+  });
+
+  const choose = (secs) => { if (running) return; setPreset(secs); setRemaining(secs); doneRef.current = false; };
+  const reallyStart = () => {
+    startRef.current = Date.now() - (preset - remaining) * 1000;
+    doneRef.current = false;
+    setRunning(true);
+    beep(880, 150);
+  };
+  const start = () => { primeAudio(); pre.start(reallyStart); };
+  const pause = () => setRunning(false);
+  const reset = () => { setRunning(false); setRemaining(preset); doneRef.current = false; };
+
+  return (
+    <div className="box-card">
+      <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap", alignItems: "flex-end" }}>
+        {PRESETS.map((s) => (
+          <button key={s} className={`box-tabbtn ${preset === s ? "active" : ""}`} onClick={() => choose(s)} disabled={running || pre.counting}>{s}s</button>
+        ))}
+        <div style={{ width: 90 }}>
+          <label className="box-label">Personalizado (s)</label>
+          <input className="box-input" type="number" value={custom} onChange={(e) => setCustom(Number(e.target.value))} disabled={running || pre.counting} />
+        </div>
+        <button className="box-tabbtn" onClick={() => choose(custom)} disabled={running || pre.counting}>Usar</button>
+      </div>
+      {pre.counting ? (
+        <CountdownOverlay count={pre.count} />
+      ) : (
+        <div className="clock-display" style={{ color: remaining <= 5 && remaining > 0 ? "var(--rust)" : "var(--ink)" }}>{fmtClock(Math.max(0, remaining))}</div>
+      )}
+      <div style={{ display: "flex", gap: 10, justifyContent: "center", marginTop: 18 }}>
+        {!running ? <button className="box-btn box-btn-primary" onClick={start} disabled={pre.counting}>Start</button> : <button className="box-btn box-btn-ghost" onClick={pause}>Pausar</button>}
+        <button className="box-btn box-btn-ghost" onClick={reset} disabled={pre.counting}>Reset</button>
+      </div>
+    </div>
+  );
+}
+
+function RoutineTimerScreen() {
+  return (
+    <div>
+      <h1 className="box-h1" style={{ marginBottom: 16 }}>Descanso entre series</h1>
+      <RestTimer />
+    </div>
+  );
+}
+
+/* ============================== RUTINAS (GAP / Musculación) — COACH ============================== */
+
+function RoutineEditor({ user }) {
+  const [modality, setModality] = useState("gap");
+  const [routines, setRoutines] = useState(null);
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [formDay, setFormDay] = useState(1);
+  const [formSplit, setFormSplit] = useState(ROUTINE_SPLITS.gap[0]);
+  const [formExercises, setFormExercises] = useState([{ name: "", sets: "", reps: "", note: "" }]);
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  const [formError, setFormError] = useState("");
+
+  const load = useCallback(() => {
+    setRoutines(null);
+    db.listRoutines(user.id, modality).then(setRoutines);
+  }, [user.id, modality]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const openNew = () => {
+    setEditingId(null);
+    setFormDay(1);
+    setFormSplit(ROUTINE_SPLITS[modality][0]);
+    setFormExercises([{ name: "", sets: "", reps: "", note: "" }]);
+    setFormError("");
+    setShowForm(true);
+  };
+
+  const openEdit = (r) => {
+    setEditingId(r.id);
+    setFormDay(r.dayOfWeek);
+    setFormSplit(r.splitLabel);
+    setFormExercises(r.exercises.length ? r.exercises.map((e) => ({ ...e })) : [{ name: "", sets: "", reps: "", note: "" }]);
+    setFormError("");
+    setShowForm(true);
+  };
+
+  const updateExerciseRow = (i, patch) => {
+    setFormExercises((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  };
+  const addExerciseRow = () => setFormExercises((rows) => [...rows, { name: "", sets: "", reps: "", note: "" }]);
+  const removeExerciseRow = (i) => setFormExercises((rows) => rows.filter((_, idx) => idx !== i));
+
+  const submitForm = async () => {
+    setFormError("");
+    const exercises = formExercises.filter((e) => e.name.trim()).map((e) => ({
+      name: e.name.trim(), sets: e.sets || "", reps: e.reps || "", note: e.note || "",
+    }));
+    if (!exercises.length) { setFormError("Agregá al menos un ejercicio."); return; }
+    const payload = { modality, dayOfWeek: formDay, splitLabel: formSplit, exercises };
+    if (editingId) await db.updateRoutine(editingId, payload);
+    else await db.createRoutine(user.id, payload);
+    await load();
+    setShowForm(false);
+  };
+
+  const deleteRoutine = async (id) => {
+    await db.deleteRoutine(id);
+    await load();
+    setConfirmDeleteId(null);
+  };
+
+  return (
+    <div>
+      <h1 className="box-h1" style={{ marginBottom: 14 }}>Rutinas</h1>
+      <p className="box-muted" style={{ marginBottom: 14 }}>
+        Planificación semanal (por día, se repite todas las semanas) para tus atletas de GAP y Musculación.
+      </p>
+
+      <div style={{ display: "flex", gap: 6, marginBottom: 18 }}>
+        <button className={`box-tabbtn ${modality === "gap" ? "active" : ""}`} onClick={() => { setModality("gap"); setShowForm(false); }}>GAP</button>
+        <button className={`box-tabbtn ${modality === "musculacion" ? "active" : ""}`} onClick={() => { setModality("musculacion"); setShowForm(false); }}>Musculación</button>
+        <button className="box-btn box-btn-primary" style={{ marginLeft: "auto" }} onClick={openNew}><Plus size={14} /> Nueva rutina</button>
+      </div>
+
+      {showForm && (
+        <div className="box-card" style={{ marginBottom: 18 }}>
+          <h3 className="box-h3" style={{ marginBottom: 10 }}>{editingId ? "Editar rutina" : "Nueva rutina"}</h3>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
+            <div style={{ width: 170 }}>
+              <label className="box-label">Día de la semana</label>
+              <select className="box-select" value={formDay} onChange={(e) => setFormDay(Number(e.target.value))}>
+                {WEEKDAYS.map((w, i) => <option key={w} value={i}>{w}</option>)}
+              </select>
+            </div>
+            <div style={{ width: 200 }}>
+              <label className="box-label">Grupo / split</label>
+              <select className="box-select" value={formSplit} onChange={(e) => setFormSplit(e.target.value)}>
+                {ROUTINE_SPLITS[modality].map((s) => <option key={s}>{s}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <label className="box-label">Ejercicios</label>
+          {formExercises.map((ex, i) => (
+            <div key={i} style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap", alignItems: "center" }}>
+              <input className="box-input" style={{ flex: "2 1 160px" }} placeholder="Ejercicio" value={ex.name} onChange={(e) => updateExerciseRow(i, { name: e.target.value })} />
+              <input className="box-input" style={{ width: 70 }} placeholder="Series" value={ex.sets} onChange={(e) => updateExerciseRow(i, { sets: e.target.value })} />
+              <input className="box-input" style={{ width: 70 }} placeholder="Reps" value={ex.reps} onChange={(e) => updateExerciseRow(i, { reps: e.target.value })} />
+              <input className="box-input" style={{ flex: "1 1 120px" }} placeholder="Nota (opcional)" value={ex.note} onChange={(e) => updateExerciseRow(i, { note: e.target.value })} />
+              <button className="icon-btn-circle" style={{ width: 28, height: 28 }} onClick={() => removeExerciseRow(i)} title="Quitar"><X size={13} /></button>
+            </div>
+          ))}
+          <button className="box-btn box-btn-ghost" style={{ marginBottom: 12 }} onClick={addExerciseRow}><Plus size={13} /> Agregar ejercicio</button>
+
+          {formError && <div className="box-error" style={{ marginBottom: 10 }}>{formError}</div>}
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="box-btn box-btn-primary" onClick={submitForm}><Check size={14} /> Guardar</button>
+            <button className="box-btn box-btn-ghost" onClick={() => setShowForm(false)}><X size={14} /> Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {routines === null && <p className="box-muted">Cargando…</p>}
+      {routines !== null && routines.length === 0 && !showForm && (
+        <div className="box-card"><p className="box-muted">Todavía no armaste ninguna rutina de {modality === "gap" ? "GAP" : "Musculación"}.</p></div>
+      )}
+
+      <div className="whiteboard">
+        {(routines || []).map((r) => (
+          <div className="wod-row" key={r.id}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+              <div>
+                <span className="wod-type">{WEEKDAYS[r.dayOfWeek]}</span>
+                <span className="box-badge" style={{ marginLeft: 8 }}>{r.splitLabel}</span>
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button className="icon-btn-circle" style={{ width: 28, height: 28 }} onClick={() => openEdit(r)} title="Editar"><Pencil size={13} /></button>
+                {confirmDeleteId === r.id ? (
+                  <>
+                    <button className="box-btn box-btn-danger" style={{ padding: "4px 10px", fontSize: 12 }} onClick={() => deleteRoutine(r.id)}>Sí, borrar</button>
+                    <button className="box-btn box-btn-ghost" style={{ padding: "4px 10px", fontSize: 12 }} onClick={() => setConfirmDeleteId(null)}>Cancelar</button>
+                  </>
+                ) : (
+                  <button className="icon-btn-circle" style={{ width: 28, height: 28 }} onClick={() => setConfirmDeleteId(r.id)} title="Borrar"><Trash2 size={13} /></button>
+                )}
+              </div>
+            </div>
+            <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
+              {r.exercises.map((ex, i) => (
+                <div key={i} className="box-muted" style={{ fontSize: 13 }}>
+                  <b style={{ color: "var(--ink)" }}>{ex.name}</b>
+                  {ex.sets || ex.reps ? ` — ${ex.sets || "?"} x ${ex.reps || "?"}` : ""}
+                  {ex.note ? ` · ${ex.note}` : ""}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ============================== RUTINAS (GAP / Musculación) — ATLETA ============================== */
+
+function RoutineToday({ user, onCoachesReload }) {
+  const coaches = user.coaches || [];
+  const [coachIdx, setCoachIdx] = useState(0);
+  const activeCoach = coaches[coachIdx] || null;
+  const [routines, setRoutines] = useState(null);
+  const [completions, setCompletions] = useState([]);
+  const [checked, setChecked] = useState({});
+  const [logging, setLogging] = useState(null); // exercise name being logged
+  const [logWeight, setLogWeight] = useState("");
+  const todayDow = new Date().getDay();
+
+  const load = useCallback(() => {
+    if (!activeCoach) { setRoutines([]); return; }
+    setRoutines(null);
+    db.listRoutines(activeCoach.id, user.modality).then(setRoutines);
+  }, [activeCoach, user.modality]);
+
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => { db.listRoutineCompletions(user.id).then(setCompletions); }, [user.id]);
+
+  if (coaches.length === 0) {
+    return (
+      <div>
+        <h1 className="box-h1" style={{ marginBottom: 14 }}>Hoy</h1>
+        <LinkCoachForm user={user} onLinked={onCoachesReload} />
+      </div>
+    );
+  }
+
+  const todays = (routines || []).filter((r) => r.dayOfWeek === todayDow);
+  const key = todayKey();
+  const isDone = (routineId) => completions.some((c) => c.routineId === routineId && c.dateKey === key);
+
+  const toggleCheck = (routineId, i) => {
+    setChecked((c) => ({ ...c, [`${routineId}-${i}`]: !c[`${routineId}-${i}`] }));
+  };
+
+  const saveLog = async (exerciseName) => {
+    if (!logWeight) { setLogging(null); return; }
+    await db.addRmRecord(user.id, { exercise: exerciseName, weight: Number(logWeight), unit: "kg", date: key, note: "" });
+    setLogWeight("");
+    setLogging(null);
+  };
+
+  const markComplete = async (routineId) => {
+    await db.markRoutineComplete(user.id, routineId, key);
+    const list = await db.listRoutineCompletions(user.id);
+    setCompletions(list);
+  };
+
+  return (
+    <div>
+      <div className="greeting-card">
+        <div className="greeting-left">
+          <div className="avatar-circle">{user.name.trim().charAt(0).toUpperCase()}</div>
+          <div>
+            <div className="greeting-name">Hola, {user.name.split(" ")[0]}</div>
+            <div className="box-muted">{new Date().toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" })}</div>
+          </div>
+        </div>
+      </div>
+
+      {coaches.length > 1 && (
+        <div style={{ display: "flex", gap: 6, marginBottom: 18, flexWrap: "wrap" }}>
+          {coaches.map((c, i) => (
+            <button key={c.username} className={`box-tabbtn ${coachIdx === i ? "active" : ""}`} onClick={() => setCoachIdx(i)}>{c.name}</button>
+          ))}
+        </div>
+      )}
+
+      {routines === null && <p className="box-muted">Cargando…</p>}
+
+      {routines !== null && todays.length === 0 && (
+        <div className="box-card"><p className="box-muted">Tu coach todavía no cargó una rutina para hoy ({WEEKDAYS[todayDow]}).</p></div>
+      )}
+
+      {todays.map((r) => (
+        <div className="box-card accent-left" style={{ marginBottom: 18 }} key={r.id}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <span className="box-badge">{r.splitLabel}</span>
+            {isDone(r.id) && (
+              <span className="box-badge" style={{ background: "var(--olive-tint)", color: "var(--olive)", borderLeftColor: "var(--olive)" }}>
+                <Check size={11} /> Completada hoy
+              </span>
+            )}
+          </div>
+          {r.exercises.map((ex, i) => {
+            const k = `${r.id}-${i}`;
+            return (
+              <div key={i} style={{ borderBottom: "1px solid var(--line)", padding: "9px 0" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                  <div>
+                    <div style={{ fontWeight: 600 }}>{ex.name}</div>
+                    <div className="box-muted" style={{ fontSize: 12 }}>
+                      {ex.sets || "?"} x {ex.reps || "?"}{ex.note ? ` · ${ex.note}` : ""}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => toggleCheck(r.id, i)}
+                    style={{
+                      width: 26, height: 26, borderRadius: "50%", flexShrink: 0, cursor: "pointer",
+                      border: checked[k] ? "1px solid var(--olive)" : "1px solid var(--line)",
+                      background: checked[k] ? "var(--olive-tint)" : "transparent",
+                      color: "var(--olive)", display: "flex", alignItems: "center", justifyContent: "center",
+                    }}
+                  >
+                    {checked[k] && <Check size={14} />}
+                  </button>
+                </div>
+                {logging === ex.name ? (
+                  <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                    <input className="box-input" style={{ width: 100 }} type="number" placeholder="kg" value={logWeight} onChange={(e) => setLogWeight(e.target.value)} />
+                    <button className="box-btn box-btn-primary" style={{ padding: "6px 12px", fontSize: 12 }} onClick={() => saveLog(ex.name)}>Guardar</button>
+                    <button className="box-btn box-btn-ghost" style={{ padding: "6px 12px", fontSize: 12 }} onClick={() => setLogging(null)}>Cancelar</button>
+                  </div>
+                ) : (
+                  <button className="box-btn box-btn-ghost" style={{ marginTop: 6, padding: "4px 10px", fontSize: 11.5 }} onClick={() => { setLogging(ex.name); setLogWeight(""); }}>
+                    <Dumbbell size={12} /> Registrar peso usado
+                  </button>
+                )}
+              </div>
+            );
+          })}
+          {!isDone(r.id) && (
+            <button className="box-btn box-btn-primary" style={{ width: "100%", marginTop: 12 }} onClick={() => markComplete(r.id)}>
+              <Check size={14} /> Marcar rutina como completa
+            </button>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ============================== PROGRESO (GAP / Musculación) ============================== */
+
+function ProgresoScreen({ user }) {
+  const [completions, setCompletions] = useState(null);
+
+  useEffect(() => { db.listRoutineCompletions(user.id).then(setCompletions); }, [user.id]);
+
+  const dateSet = useMemo(() => new Set((completions || []).map((c) => c.dateKey)), [completions]);
+
+  const streak = useMemo(() => {
+    if (!completions) return 0;
+    let count = 0;
+    let d = new Date();
+    while (dateSet.has(toKey(d))) {
+      count++;
+      d = new Date(d); d.setDate(d.getDate() - 1);
+    }
+    return count;
+  }, [completions, dateSet]);
+
+  const heatCells = useMemo(() => {
+    const cells = [];
+    const d = new Date();
+    d.setDate(d.getDate() - 83);
+    for (let i = 0; i < 84; i++) {
+      cells.push(dateSet.has(toKey(d)));
+      d.setDate(d.getDate() + 1);
+    }
+    return cells;
+  }, [dateSet]);
+
+  return (
+    <div>
+      <h1 className="box-h1" style={{ marginBottom: 16 }}>Progreso</h1>
+      <div className="stats-row">
+        <StatChip icon={Flame} value={streak} label="Racha actual" tint="amber" />
+        <StatChip icon={CheckCircle2} value={completions ? completions.length : 0} label="Rutinas completadas" tint="olive" />
+      </div>
+      <div className="box-card" style={{ marginBottom: 18 }}>
+        <h3 className="box-h3" style={{ marginBottom: 8 }}>Constancia · últimas 12 semanas</h3>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(12, 1fr)", gap: 3 }}>
+          {heatCells.map((done, i) => (
+            <div key={i} style={{ aspectRatio: "1", borderRadius: 2, background: done ? "var(--amber)" : "var(--panel-2)" }} />
+          ))}
+        </div>
+      </div>
+      <RmTracker user={user} />
+    </div>
+  );
+}
+
+/* ============================== HYROX ============================== */
+
+function HyroxToday({ user }) {
+  const [sessionId, setSessionId] = useState(null);
+  const [segIndex, setSegIndex] = useState(0);
+  const [running, setRunning] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+  const [splits, setSplits] = useState([]);
+  const [finished, setFinished] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const startRef = useRef(null);
+  useWakeLock(running);
+
+  useTicker(running, () => setElapsed((Date.now() - startRef.current) / 1000));
+
+  const startSegment = () => {
+    primeAudio();
+    startRef.current = Date.now();
+    setElapsed(0);
+    setRunning(true);
+    beep(880, 150);
+  };
+
+  const startRace = () => {
+    const id = (window.crypto && window.crypto.randomUUID) ? window.crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+    setSessionId(id);
+    setSegIndex(0);
+    setSplits([]);
+    setFinished(false);
+    startSegment();
+  };
+
+  const markSegment = async () => {
+    const seg = HYROX_SEGMENTS[segIndex];
+    const secs = Math.round(elapsed);
+    setRunning(false);
+    setSaving(true);
+    try {
+      await db.addHyroxSplit(user.id, { sessionId, segmentIndex: segIndex, segmentName: seg.name, seconds: secs });
+    } finally {
+      setSaving(false);
+    }
+    setSplits((s) => [...s, { segmentName: seg.name, seconds: secs }]);
+    if (segIndex + 1 >= HYROX_SEGMENTS.length) {
+      setFinished(true);
+      beep(660, 700, "square");
+    } else {
+      setSegIndex((i) => i + 1);
+      startSegment();
+    }
+  };
+
+  const cancelRace = () => {
+    setRunning(false);
+    setSessionId(null);
+    setSegIndex(0);
+    setSplits([]);
+    setFinished(false);
+  };
+
+  const totalSeconds = splits.reduce((a, s) => a + s.seconds, 0);
+
+  if (!sessionId) {
+    return (
+      <div>
+        <h1 className="box-h1" style={{ marginBottom: 16 }}>Hoy</h1>
+        <div className="box-card">
+          <h2 className="box-h2" style={{ marginBottom: 8 }}>Simulacro completo</h2>
+          <p className="box-muted" style={{ marginBottom: 14 }}>
+            8 corridas de 1km alternadas con las 8 estaciones, en el orden real de carrera. Vas a ir marcando cada tramo a
+            medida que lo termines y quedan guardados los parciales.
+          </p>
+          <button className="box-btn box-btn-primary" onClick={startRace}><ArrowUpRight size={14} /> Iniciar simulacro</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (finished) {
+    return (
+      <div>
+        <h1 className="box-h1" style={{ marginBottom: 16 }}>¡Simulacro completo!</h1>
+        <div className="box-card" style={{ marginBottom: 18 }}>
+          <div className="clock-display">{fmtRaceClock(totalSeconds)}</div>
+          <p className="box-muted" style={{ textAlign: "center" }}>Tiempo total</p>
+        </div>
+        <div className="box-card" style={{ marginBottom: 18 }}>
+          <h3 className="box-h3" style={{ marginBottom: 8 }}>Parciales</h3>
+          {splits.map((s, i) => (
+            <div className="rm-row" key={i}><span>{i + 1}. {s.segmentName}</span><b>{fmtRaceClock(s.seconds)}</b></div>
+          ))}
+        </div>
+        <button className="box-btn box-btn-primary" onClick={cancelRace}><Repeat size={14} /> Nuevo simulacro</button>
+      </div>
+    );
+  }
+
+  const seg = HYROX_SEGMENTS[segIndex];
+  const nextSeg = HYROX_SEGMENTS[segIndex + 1];
+
+  return (
+    <div>
+      <h1 className="box-h1" style={{ marginBottom: 16 }}>Simulacro en curso</h1>
+      <div className="box-card" style={{ marginBottom: 14 }}>
+        <p className="box-muted" style={{ textAlign: "center", marginBottom: 2 }}>Estación {segIndex + 1} de {HYROX_SEGMENTS.length}</p>
+        <h2 className="box-h2" style={{ textAlign: "center" }}>{seg.name}</h2>
+        <div className="clock-display">{fmtRaceClock(elapsed)}</div>
+        <div style={{ display: "flex", justifyContent: "center" }}>
+          <button className="box-btn box-btn-primary" disabled={saving} onClick={markSegment}><Check size={14} /> Marcar tramo</button>
+        </div>
+        {nextSeg && <p className="box-muted" style={{ textAlign: "center", marginTop: 10 }}>Siguiente: {nextSeg.name}</p>}
+      </div>
+      {splits.length > 0 && (
+        <div className="box-card" style={{ marginBottom: 14 }}>
+          <h3 className="box-h3" style={{ marginBottom: 8 }}>Parciales de hoy</h3>
+          {splits.map((s, i) => (
+            <div className="rm-row" key={i}><span>{i + 1}. {s.segmentName}</span><b>{fmtRaceClock(s.seconds)}</b></div>
+          ))}
+        </div>
+      )}
+      <button className="box-btn box-btn-ghost" onClick={cancelRace}><X size={14} /> Cancelar simulacro</button>
+    </div>
+  );
+}
+
+function HyroxStations({ user }) {
+  const [splits, setSplits] = useState(null);
+
+  useEffect(() => { db.listHyroxSplits(user.id).then(setSplits); }, [user.id]);
+
+  const bestByStation = useMemo(() => {
+    const map = {};
+    (splits || []).forEach((s) => {
+      if (!HYROX_STATIONS.includes(s.segmentName)) return;
+      if (!map[s.segmentName] || s.seconds < map[s.segmentName]) map[s.segmentName] = s.seconds;
+    });
+    return map;
+  }, [splits]);
+
+  if (splits === null) return <p className="box-muted">Cargando…</p>;
+
+  return (
+    <div>
+      <h1 className="box-h1" style={{ marginBottom: 16 }}>Estaciones</h1>
+      <div className="box-card">
+        <h2 className="box-h2" style={{ marginBottom: 10 }}>Tus mejores marcas</h2>
+        {HYROX_STATIONS.map((name) => (
+          <div className="rm-row" key={name}>
+            <span>{name}</span>
+            {bestByStation[name] != null ? (
+              <span className="box-badge" style={{ background: "var(--olive-tint)", color: "var(--olive)", borderLeftColor: "var(--olive)" }}>
+                <Flame size={11} /> {fmtRaceClock(bestByStation[name])}
+              </span>
+            ) : (
+              <span className="box-muted">Sin marca todavía</span>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function HyroxStats({ user }) {
+  const [splits, setSplits] = useState(null);
+
+  useEffect(() => { db.listHyroxSplits(user.id).then(setSplits); }, [user.id]);
+
+  const sessions = useMemo(() => {
+    const map = {};
+    (splits || []).forEach((s) => {
+      (map[s.sessionId] = map[s.sessionId] || []).push(s);
+    });
+    return Object.entries(map)
+      .map(([id, list]) => ({
+        id,
+        total: list.reduce((a, s) => a + s.seconds, 0),
+        finished: list.length >= HYROX_SEGMENTS.length,
+        at: list[0]?.createdAt,
+      }))
+      .filter((s) => s.finished)
+      .sort((a, b) => new Date(a.at) - new Date(b.at));
+  }, [splits]);
+
+  const chartData = sessions.map((s, i) => ({ session: `#${i + 1}`, total: Math.round(s.total / 60 * 10) / 10 }));
+  const best = sessions.length ? Math.min(...sessions.map((s) => s.total)) : null;
+
+  const weakestStation = useMemo(() => {
+    const sums = {};
+    const counts = {};
+    (splits || []).forEach((s) => {
+      if (!HYROX_STATIONS.includes(s.segmentName)) return;
+      sums[s.segmentName] = (sums[s.segmentName] || 0) + s.seconds;
+      counts[s.segmentName] = (counts[s.segmentName] || 0) + 1;
+    });
+    let worst = null;
+    Object.keys(sums).forEach((name) => {
+      const avg = sums[name] / counts[name];
+      if (!worst || avg > worst.avg) worst = { name, avg };
+    });
+    return worst;
+  }, [splits]);
+
+  if (splits === null) return <p className="box-muted">Cargando…</p>;
+
+  return (
+    <div>
+      <h1 className="box-h1" style={{ marginBottom: 16 }}>Stats</h1>
+      <div className="box-card" style={{ marginBottom: 18 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+          <h2 className="box-h2">Tiempo total de carrera</h2>
+          {best != null && (
+            <span className="box-badge" style={{ background: "var(--olive-tint)", color: "var(--olive)", borderLeftColor: "var(--olive)" }}>
+              <Flame size={11} /> Mejor: {fmtRaceClock(best)}
+            </span>
+          )}
+        </div>
+        {chartData.length >= 2 ? (
+          <div style={{ height: 220 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={chartData}>
+                <CartesianGrid stroke="var(--line)" strokeDasharray="3 3" />
+                <XAxis dataKey="session" stroke="var(--ink-dim)" fontSize={11} />
+                <YAxis stroke="var(--ink-dim)" fontSize={11} domain={["auto", "auto"]} unit="m" />
+                <Tooltip contentStyle={{ background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 8, color: "var(--ink)" }} />
+                <Line type="monotone" dataKey="total" stroke="var(--amber)" strokeWidth={2} dot={{ r: 3 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        ) : (
+          <p className="box-muted">Completá al menos dos simulacros para ver la evolución en gráfico.</p>
+        )}
+      </div>
+      {weakestStation && (
+        <div className="box-card">
+          <h3 className="box-h3" style={{ marginBottom: 8 }}>Estación más débil</h3>
+          <div className="rm-row">
+            <span>{weakestStation.name}</span>
+            <span className="box-badge" style={{ background: "var(--rust-tint)", color: "var(--rust)", borderLeftColor: "var(--rust)" }}>
+              <AlertTriangle size={11} /> Promedio {fmtRaceClock(weakestStation.avg)} · foco acá
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ============================== APP ROOT ============================== */
 
 export default function App() {
@@ -2983,7 +3825,15 @@ export default function App() {
     updateUser({ coaches });
   };
   const logout = async () => { await db.signOut(); setUser(null); };
-  const navItems = user ? NAV.filter((n) => !n.coachOnly || user.role === "coach") : [];
+  // Los usuarios existentes no tienen "modality" cargado todavía en el cliente
+  // hasta que corra la migración -> por defecto siempre se comportan como Crossfit.
+  // Los coaches siempre navegan con el set de Crossfit (arman contenido para
+  // todas las modalidades de sus atletas desde ahí), sin importar su propia modalidad.
+  const isCrossfit = !user || !user.modality || user.modality === "crossfit" || user.role === "coach";
+  const isHyrox = !!user && user.role !== "coach" && user.modality === "hyrox";
+  const isRoutineModality = !!user && user.role !== "coach" && (user.modality === "gap" || user.modality === "musculacion");
+  const navSet = isHyrox ? NAV_HYROX : isRoutineModality ? NAV_ROUTINE : NAV_CROSSFIT;
+  const navItems = user ? navSet.filter((n) => !n.coachOnly || user.role === "coach") : [];
 
   if (checkingSession) {
     return (
@@ -3033,10 +3883,32 @@ export default function App() {
             </div>
 
             <div className="box-main">
-              {screen === "wod" && <WodBoard user={user} onUserUpdate={updateUser} onCoachesReload={reloadCoaches} />}
-              {screen === "rm" && <RmTracker user={user} />}
-              {screen === "stats" && <StatsScreen user={user} />}
-              {screen === "timer" && <TimerScreen user={user} />}
+              {isCrossfit ? (
+                <>
+                  {screen === "wod" && <WodBoard user={user} onUserUpdate={updateUser} onCoachesReload={reloadCoaches} />}
+                  {screen === "rm" && <RmTracker user={user} />}
+                  {screen === "stats" && <StatsScreen user={user} />}
+                  {screen === "routines" && user.role === "coach" && <RoutineEditor user={user} />}
+                </>
+              ) : isHyrox ? (
+                <>
+                  {screen === "wod" && <HyroxToday user={user} />}
+                  {screen === "stations" && <HyroxStations user={user} />}
+                  {screen === "stats" && <HyroxStats user={user} />}
+                </>
+              ) : isRoutineModality ? (
+                <>
+                  {screen === "wod" && <RoutineToday user={user} onCoachesReload={reloadCoaches} />}
+                  {screen === "rm" && <ProgresoScreen user={user} />}
+                </>
+              ) : (
+                ["wod", "rm", "stats"].includes(screen) && <ModalityComingSoon modality={user.modality} />
+              )}
+              {/* El timer queda siempre montado (aunque no se esté viendo) para que
+                  no se reinicie el cronómetro al cambiar de pantalla. */}
+              <div style={{ display: screen === "timer" ? "block" : "none" }}>
+                {isCrossfit ? <TimerScreen user={user} /> : isRoutineModality ? <RoutineTimerScreen /> : <ModalityComingSoon modality={user.modality} />}
+              </div>
               {screen === "athletes" && user.role === "coach" && <CoachAthletes user={user} />}
               {screen === "settings" && <SettingsScreen user={user} onLogout={logout} onUserUpdate={updateUser} onCoachesReload={reloadCoaches} />}
             </div>

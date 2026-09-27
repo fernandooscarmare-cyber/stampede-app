@@ -15,6 +15,7 @@ async function ensureProfile(authUser) {
     name: meta.name,
     role: meta.role || "atleta",
     coach_username: null,
+    modality: meta.modality || "crossfit",
   });
   if (error) {
     if (error.code === "23505") throw new Error("Ese usuario ya existe.");
@@ -23,7 +24,7 @@ async function ensureProfile(authUser) {
   return await getProfile(authUser.id);
 }
 
-export async function signUp({ email, password, name, username, role }) {
+export async function signUp({ email, password, name, username, role, modality }) {
   const key = username.trim().toLowerCase();
 
   // Chequeamos que el usuario público no esté tomado antes de crear la cuenta
@@ -37,7 +38,7 @@ export async function signUp({ email, password, name, username, role }) {
 
   const { data, error } = await supabase.auth.signUp({
     email, password,
-    options: { data: { name, username: key, role } },
+    options: { data: { name, username: key, role, modality: modality || "crossfit" } },
   });
   if (error) throw error;
 
@@ -112,7 +113,7 @@ export async function getProfile(userId) {
     .maybeSingle();
   if (error) throw error;
   if (!data) return null;
-  return { id: data.id, username: data.username, name: data.name, role: data.role };
+  return { id: data.id, username: data.username, name: data.name, role: data.role, modality: data.modality || "crossfit" };
 }
 
 export async function getProfileByUsername(username) {
@@ -365,8 +366,9 @@ function mapResultRow(r) {
     time: r.time_result || "",
     rounds: r.rounds,
     reps: r.reps,
-    scaling: r.scaling || "RX",
+    scaling: r.scaling || "",
     comment: r.comment || "",
+    completed: !!r.completed,
     savedAt: new Date(r.created_at).getTime(),
     // datos del WOD embebido (join), para no tener que resolverlo aparte
     dateKey: r.wods?.wod_date,
@@ -422,4 +424,129 @@ export async function addResult({ wodId, userId, time, rounds, reps, scaling, co
     .single();
   if (error) throw error;
   return mapResultRow(data);
+}
+
+// Marca el WOD como hecho sin cargar un resultado numérico (por ejemplo,
+// cuando no hay tiempo/rondas para anotar pero el atleta sí entrenó ese día).
+export async function markWodComplete(wodId, userId) {
+  const { data, error } = await supabase
+    .from("wod_results")
+    .insert({ wod_id: wodId, user_id: userId, completed: true, scaling: null })
+    .select("*, wods(wod_date, tipo, wod_content)")
+    .single();
+  if (error) throw error;
+  return mapResultRow(data);
+}
+
+/* ============================================================
+   RUTINAS (GAP / Musculación) — planificación semanal por día,
+   distinta del WOD de Crossfit.
+   ============================================================ */
+
+function mapRoutineRow(r) {
+  return {
+    id: r.id,
+    coachId: r.coach_id,
+    modality: r.modality,
+    dayOfWeek: r.day_of_week,
+    splitLabel: r.split_label,
+    exercises: r.exercises || [],
+  };
+}
+
+export async function listRoutines(coachId, modality) {
+  if (!coachId) return [];
+  const { data, error } = await supabase
+    .from("routines")
+    .select("*")
+    .eq("coach_id", coachId)
+    .eq("modality", modality)
+    .order("day_of_week", { ascending: true });
+  if (error) throw error;
+  return (data || []).map(mapRoutineRow);
+}
+
+export async function createRoutine(coachId, payload) {
+  const { data, error } = await supabase
+    .from("routines")
+    .insert({
+      coach_id: coachId,
+      modality: payload.modality,
+      day_of_week: payload.dayOfWeek,
+      split_label: payload.splitLabel,
+      exercises: payload.exercises || [],
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return mapRoutineRow(data);
+}
+
+export async function updateRoutine(id, payload) {
+  const { data, error } = await supabase
+    .from("routines")
+    .update({
+      day_of_week: payload.dayOfWeek,
+      split_label: payload.splitLabel,
+      exercises: payload.exercises || [],
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id)
+    .select()
+    .single();
+  if (error) throw error;
+  return mapRoutineRow(data);
+}
+
+export async function deleteRoutine(id) {
+  const { error } = await supabase.from("routines").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// Marca (idempotente) la rutina de una fecha como hecha.
+export async function markRoutineComplete(userId, routineId, dateKey) {
+  const { error } = await supabase
+    .from("routine_completions")
+    .insert({ user_id: userId, routine_id: routineId, date_key: dateKey });
+  if (error && error.code !== "23505") throw error; // 23505 = ya estaba marcada, no pasa nada
+}
+
+export async function listRoutineCompletions(userId) {
+  const { data, error } = await supabase
+    .from("routine_completions")
+    .select("*")
+    .eq("user_id", userId)
+    .order("date_key", { ascending: false });
+  if (error) throw error;
+  return (data || []).map((r) => ({ id: r.id, routineId: r.routine_id, dateKey: r.date_key }));
+}
+
+/* ============================================================
+   HYROX — simulacros de carrera: 8 estaciones + 8 corridas de 1km,
+   guardados como parciales agrupados por sessionId (un simulacro).
+   ============================================================ */
+
+export async function addHyroxSplit(userId, { sessionId, segmentIndex, segmentName, seconds }) {
+  const { error } = await supabase.from("hyrox_splits").insert({
+    user_id: userId, session_id: sessionId, segment_index: segmentIndex,
+    segment_name: segmentName, seconds,
+  });
+  if (error) throw error;
+}
+
+export async function listHyroxSplits(userId) {
+  const { data, error } = await supabase
+    .from("hyrox_splits")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+  return (data || []).map((r) => ({
+    id: r.id,
+    sessionId: r.session_id,
+    segmentIndex: r.segment_index,
+    segmentName: r.segment_name,
+    seconds: Number(r.seconds),
+    createdAt: r.created_at,
+  }));
 }
