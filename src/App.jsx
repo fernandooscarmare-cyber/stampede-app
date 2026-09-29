@@ -532,7 +532,7 @@ function GlobalStyle() {
       .box-success { color: var(--olive); font-size: 13px; margin-top: 6px; }
       .box-muted { color: var(--ink-dim); font-size: 13px; }
       .box-divider { height: 1px; background: var(--line); margin: 16px 0; }
-      .box-auth-wrap { flex: 1; display: flex; align-items: center; justify-content: center; padding: 30px 16px; }
+      .box-auth-wrap { flex: 1; display: flex; align-items: center; justify-content: center; padding: 30px 16px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
       .box-auth-card { width: 100%; max-width: 340px; }
       .box-tabbtn { flex: 1; padding: 10px; border: none; cursor: pointer; font-family: 'Rajdhani', sans-serif; font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; background: var(--panel-2); color: var(--ink-dim); border-radius: var(--radius-pill); }
       .box-tabbtn.active { background: var(--amber-dim); color: var(--amber); }
