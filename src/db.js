@@ -466,6 +466,16 @@ export async function listRoutines(coachId, modality) {
   return (data || []).map(mapRoutineRow);
 }
 
+// Otros coaches que comparten al menos un atleta con este coach (para ver,
+// de solo lectura, las rutinas que cada uno le carga a esos atletas en común).
+export async function listSharedCoaches() {
+  // Función de la base (migración v6): devuelve los coaches que comparten
+  // al menos un atleta con el coach logueado.
+  const { data, error } = await supabase.rpc("list_shared_coaches");
+  if (error) throw error;
+  return (data || []).map((c) => ({ id: c.id, name: c.name || c.username, username: c.username }));
+}
+
 export async function createRoutine(coachId, payload) {
   const { data, error } = await supabase
     .from("routines")

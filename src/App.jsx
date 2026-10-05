@@ -2428,10 +2428,33 @@ function LinkResultToWod({ user, kind, value, onDone, onCancel }) {
   );
 }
 
+function IntField({ value, onChange, width = 70, disabled, placeholder, allowEmpty = false }) {
+  const sanitize = (raw) => {
+    let v = raw.replace(/[^\d]/g, "");
+    v = v.replace(/^0+(?=\d)/, "");
+    return v;
+  };
+  return (
+    <input
+      className="box-input"
+      style={{ width }}
+      type="text"
+      inputMode="numeric"
+      pattern="[0-9]*"
+      value={value}
+      placeholder={placeholder}
+      disabled={disabled}
+      onChange={(e) => onChange(sanitize(e.target.value))}
+      onBlur={() => { if (value === "" && !allowEmpty) onChange("0"); }}
+    />
+  );
+}
+
 function ForTimeTimer({ user }) {
   const [running, setRunning] = useState(false);
   const [elapsed, setElapsed] = useState(0);
-  const [cap, setCap] = useState("");
+  const [capStr, setCapStr] = useState("");
+  const cap = Number(capStr) || 0;
   const [showLink, setShowLink] = useState(false);
   const startRef = useRef(null);
   const capHitRef = useRef(false);
@@ -2473,7 +2496,7 @@ function ForTimeTimer({ user }) {
       <div style={{ display: "flex", gap: 10, marginBottom: 14, alignItems: "flex-end", flexWrap: "wrap" }}>
         <div style={{ width: 140 }}>
           <label className="box-label">Time cap (min, opcional)</label>
-          <input className="box-input" type="number" value={cap} onChange={(e) => setCap(e.target.value)} disabled={running || pre.counting} />
+          <IntField value={capStr} onChange={setCapStr} disabled={running || pre.counting} allowEmpty />
         </div>
       </div>
       {pre.counting ? (
@@ -2508,66 +2531,114 @@ function ForTimeTimer({ user }) {
 
 function EmomTimer() {
   const [running, setRunning] = useState(false);
-  const [intervalSec, setIntervalSec] = useState(60);
-  const [rounds, setRounds] = useState(10);
+  const [workMinStr, setWorkMinStr] = useState("1");
+  const [workSecStr, setWorkSecStr] = useState("0");
+  const [noRest, setNoRest] = useState(true);
+  const [restMinStr, setRestMinStr] = useState("0");
+  const [restSecStr, setRestSecStr] = useState("30");
+  const [roundsStr, setRoundsStr] = useState("10");
   const [round, setRound] = useState(1);
+  const [phase, setPhase] = useState("work");
   const [remaining, setRemaining] = useState(60);
   const startRef = useRef(null);
-  const lastRoundRef = useRef(1);
-  const lastBeepSecRef = useRef(null);
+  const lastPhaseKeyRef = useRef(null);
+  const lastWarnRef = useRef(null);
   const pre = usePreStartCountdown(3);
   useWakeLock(running || pre.counting);
 
+  const work = Math.max(1, (Number(workMinStr) || 0) * 60 + (Number(workSecStr) || 0));
+  const rest = noRest ? 0 : Math.max(0, (Number(restMinStr) || 0) * 60 + (Number(restSecStr) || 0));
+  const rounds = Math.max(1, Number(roundsStr) || 0);
+  const cycle = work + rest;
+
   useTicker(running, () => {
     const elapsed = (Date.now() - startRef.current) / 1000;
-    const currentRound = Math.floor(elapsed / intervalSec) + 1;
-    const remInRound = intervalSec - (elapsed % intervalSec);
-    setRemaining(remInRound);
-    if (currentRound !== lastRoundRef.current) {
-      lastRoundRef.current = currentRound;
-      setRound(currentRound);
-      beep(880, 200, "square");
-      if (currentRound > rounds) setRunning(false);
+    const currentRound = Math.min(rounds, Math.floor(elapsed / cycle) + 1);
+    const posInCycle = elapsed % cycle;
+    const isWork = posInCycle < work;
+    const remInPhase = isWork ? work - posInCycle : cycle - posInCycle;
+    const key = `${currentRound}-${isWork ? "w" : "r"}`;
+    if (key !== lastPhaseKeyRef.current) {
+      lastPhaseKeyRef.current = key;
+      lastWarnRef.current = null;
+      beep(isWork ? 880 : 440, 200, "square");
     }
-    const remRounded = Math.ceil(remInRound);
-    if (remRounded <= 10 && remRounded !== lastBeepSecRef.current && remRounded > 0) {
-      lastBeepSecRef.current = remRounded;
+    const remRounded = Math.ceil(remInPhase);
+    if (remRounded <= 10 && remRounded > 0 && remRounded !== lastWarnRef.current) {
+      lastWarnRef.current = remRounded;
       beep(520, 100, "sine");
     }
-    if (remRounded > 10) lastBeepSecRef.current = null;
+    if (elapsed >= rounds * cycle) {
+      setRound(rounds);
+      setPhase("work");
+      setRemaining(0);
+      setRunning(false);
+      beep(660, 700, "square");
+      return;
+    }
+    setRound(currentRound);
+    setPhase(isWork ? "work" : "rest");
+    setRemaining(remInPhase);
   });
 
   const reallyStart = () => {
     startRef.current = Date.now();
-    lastRoundRef.current = 1;
-    lastBeepSecRef.current = null;
+    lastPhaseKeyRef.current = null;
+    lastWarnRef.current = null;
     setRound(1);
-    setRemaining(intervalSec);
+    setPhase("work");
+    setRemaining(work);
     setRunning(true);
     beep(880, 200, "square");
   };
   const start = () => { primeAudio(); pre.start(reallyStart); };
   const stop = () => setRunning(false);
-  const reset = () => { setRunning(false); setRound(1); setRemaining(intervalSec); };
+  const reset = () => { setRunning(false); setRound(1); setPhase("work"); setRemaining(work); };
 
   return (
     <div className="box-card">
-      <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
-        <div style={{ width: 140 }}>
-          <label className="box-label">Intervalo (seg)</label>
-          <input className="box-input" type="number" value={intervalSec} onChange={(e) => { setIntervalSec(Number(e.target.value)); setRemaining(Number(e.target.value)); }} disabled={running || pre.counting} />
+      <div style={{ display: "flex", gap: 16, marginBottom: 14, flexWrap: "wrap" }}>
+        <div>
+          <label className="box-label">Trabajo</label>
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <IntField width={56} value={workMinStr} onChange={setWorkMinStr} disabled={running || pre.counting} />
+            <span className="box-muted" style={{ fontSize: 12 }}>min</span>
+            <IntField width={56} value={workSecStr} onChange={setWorkSecStr} disabled={running || pre.counting} />
+            <span className="box-muted" style={{ fontSize: 12 }}>seg</span>
+          </div>
         </div>
-        <div style={{ width: 120 }}>
+        <div>
+          <label className="box-label" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            Descanso
+            <span style={{ display: "flex", alignItems: "center", gap: 4, fontWeight: 400, textTransform: "none", letterSpacing: 0, fontSize: 12, color: "var(--ink-dim)" }}>
+              <input type="checkbox" checked={noRest} onChange={(e) => setNoRest(e.target.checked)} disabled={running || pre.counting} /> Sin descanso
+            </span>
+          </label>
+          {!noRest && (
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <IntField width={56} value={restMinStr} onChange={setRestMinStr} disabled={running || pre.counting} />
+              <span className="box-muted" style={{ fontSize: 12 }}>min</span>
+              <IntField width={56} value={restSecStr} onChange={setRestSecStr} disabled={running || pre.counting} />
+              <span className="box-muted" style={{ fontSize: 12 }}>seg</span>
+            </div>
+          )}
+        </div>
+        <div style={{ width: 90 }}>
           <label className="box-label">Rondas</label>
-          <input className="box-input" type="number" value={rounds} onChange={(e) => setRounds(Number(e.target.value))} disabled={running || pre.counting} />
+          <IntField value={roundsStr} onChange={setRoundsStr} disabled={running || pre.counting} />
         </div>
       </div>
-      <p className="box-muted" style={{ textAlign: "center" }}>Ronda {round} / {rounds}</p>
+      <p className="box-muted" style={{ textAlign: "center", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+        {!noRest && `${phase === "work" ? "Trabajo" : "Descanso"} · `}Ronda {round}/{rounds}
+      </p>
       {pre.counting ? (
         <CountdownOverlay count={pre.count} />
       ) : (
-        <ProgressRing fraction={(intervalSec - remaining) / intervalSec} color="var(--amber)">
-          <div className="clock-display" style={{ fontSize: 52 }}>{fmtClock(remaining)}</div>
+        <ProgressRing
+          fraction={phase === "work" ? (work - remaining) / work : rest ? (rest - remaining) / rest : 1}
+          color={phase === "work" ? "var(--amber)" : "var(--ink-dim)"}
+        >
+          <div className="clock-display" style={{ fontSize: 52, color: phase === "work" ? "var(--amber)" : "var(--ink-dim)" }}>{fmtClock(remaining)}</div>
         </ProgressRing>
       )}
       <div style={{ display: "flex", gap: 10, justifyContent: "center", marginTop: 18 }}>
@@ -2580,7 +2651,8 @@ function EmomTimer() {
 
 function AmrapTimer({ user }) {
   const [running, setRunning] = useState(false);
-  const [minutes, setMinutes] = useState(15);
+  const [minutesStr, setMinutesStr] = useState("15");
+  const minutes = Number(minutesStr) || 0;
   const [remaining, setRemaining] = useState(15 * 60);
   const [rounds, setRounds] = useState(0);
   const [showLink, setShowLink] = useState(false);
@@ -2622,7 +2694,7 @@ function AmrapTimer({ user }) {
       <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
         <div style={{ width: 140 }}>
           <label className="box-label">Duración (min)</label>
-          <input className="box-input" type="number" value={minutes} onChange={(e) => { const v = Number(e.target.value); setMinutes(v); setRemaining(v * 60); }} disabled={running || pre.counting} />
+          <IntField value={minutesStr} onChange={(v) => { setMinutesStr(v); setRemaining((Number(v) || 0) * 60); }} disabled={running || pre.counting} />
         </div>
       </div>
       {pre.counting ? (
@@ -2655,9 +2727,12 @@ function AmrapTimer({ user }) {
 
 function TabataTimer() {
   const [running, setRunning] = useState(false);
-  const [work, setWork] = useState(20);
-  const [rest, setRest] = useState(10);
-  const [total, setTotal] = useState(8);
+  const [workStr, setWorkStr] = useState("20");
+  const [restStr, setRestStr] = useState("10");
+  const [totalStr, setTotalStr] = useState("8");
+  const work = Math.max(1, Number(workStr) || 0);
+  const rest = Math.max(0, Number(restStr) || 0);
+  const total = Math.max(1, Number(totalStr) || 0);
   const [round, setRound] = useState(1);
   const [phase, setPhase] = useState("work");
   const [remaining, setRemaining] = useState(20);
@@ -2714,15 +2789,15 @@ function TabataTimer() {
       <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
         <div style={{ width: 100 }}>
           <label className="box-label">Trabajo (s)</label>
-          <input className="box-input" type="number" value={work} onChange={(e) => setWork(Number(e.target.value))} disabled={running || pre.counting} />
+          <IntField value={workStr} onChange={setWorkStr} disabled={running || pre.counting} />
         </div>
         <div style={{ width: 100 }}>
           <label className="box-label">Descanso (s)</label>
-          <input className="box-input" type="number" value={rest} onChange={(e) => setRest(Number(e.target.value))} disabled={running || pre.counting} />
+          <IntField value={restStr} onChange={setRestStr} disabled={running || pre.counting} />
         </div>
         <div style={{ width: 100 }}>
           <label className="box-label">Rondas</label>
-          <input className="box-input" type="number" value={total} onChange={(e) => setTotal(Number(e.target.value))} disabled={running || pre.counting} />
+          <IntField value={totalStr} onChange={setTotalStr} disabled={running || pre.counting} />
         </div>
       </div>
       <p className="box-muted" style={{ textAlign: "center", textTransform: "uppercase", letterSpacing: "0.08em" }}>
@@ -3203,6 +3278,7 @@ function RoutineTimerScreen() {
 function RoutineEditor({ user }) {
   const [modality, setModality] = useState("gap");
   const [routines, setRoutines] = useState(null);
+  const [sharedRoutines, setSharedRoutines] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [formDay, setFormDay] = useState(1);
@@ -3213,8 +3289,18 @@ function RoutineEditor({ user }) {
 
   const load = useCallback(() => {
     setRoutines(null);
+    setSharedRoutines([]);
     db.listRoutines(user.id, modality).then(setRoutines);
-  }, [user.id, modality]);
+    if (user.username) {
+      db.listSharedCoaches(user.username).then(async (coaches) => {
+        if (!coaches.length) return;
+        const lists = await Promise.all(
+          coaches.map((c) => db.listRoutines(c.id, modality).then((rs) => rs.map((r) => ({ ...r, coachName: c.name }))))
+        );
+        setSharedRoutines(lists.flat());
+      }).catch(() => {});
+    }
+  }, [user.id, user.username, modality]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -3349,6 +3435,34 @@ function RoutineEditor({ user }) {
           </div>
         ))}
       </div>
+
+      {sharedRoutines.length > 0 && (
+        <>
+          <h3 className="box-h3" style={{ margin: "22px 0 10px" }}>De otros coaches (atletas en común)</h3>
+          <div className="whiteboard">
+            {sharedRoutines.map((r) => (
+              <div className="wod-row" key={r.id} style={{ opacity: 0.85 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                  <div>
+                    <span className="wod-type">{WEEKDAYS[r.dayOfWeek]}</span>
+                    <span className="box-badge" style={{ marginLeft: 8 }}>{r.splitLabel}</span>
+                  </div>
+                  <span className="box-muted" style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: "0.05em" }}>Coach: {r.coachName}</span>
+                </div>
+                <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
+                  {r.exercises.map((ex, i) => (
+                    <div key={i} className="box-muted" style={{ fontSize: 13 }}>
+                      <b style={{ color: "var(--ink)" }}>{ex.name}</b>
+                      {ex.sets || ex.reps ? ` — ${ex.sets || "?"} x ${ex.reps || "?"}` : ""}
+                      {ex.note ? ` · ${ex.note}` : ""}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }
