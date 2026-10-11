@@ -171,7 +171,7 @@ export async function unlinkAthlete(athleteUserId, coachUsername) {
 export async function listMyAthletes(coachUsername) {
   const { data, error } = await supabase
     .from("coach_links")
-    .select("profiles!coach_links_athlete_id_fkey(id, username, name, role)")
+    .select("profiles!coach_links_athlete_id_fkey(id, username, name, role, modality)")
     .eq("coach_username", coachUsername);
   if (error) throw error;
   return (data || []).map((r) => r.profiles).filter(Boolean);
@@ -374,13 +374,14 @@ function mapResultRow(r) {
     dateKey: r.wods?.wod_date,
     tipo: r.wods?.tipo,
     wod: r.wods?.wod_content,
+    originWodId: r.wods?.origin_wod_id || null,
   };
 }
 
 export async function listResultsForWod(wodId, userId) {
   const { data, error } = await supabase
     .from("wod_results")
-    .select("*, wods(wod_date, tipo, wod_content)")
+    .select("*, wods(wod_date, tipo, wod_content, origin_wod_id)")
     .eq("wod_id", wodId)
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
@@ -394,7 +395,7 @@ export async function listResultsForWods(wodIds, userId) {
   if (!wodIds.length) return [];
   const { data, error } = await supabase
     .from("wod_results")
-    .select("*, wods(wod_date, tipo, wod_content)")
+    .select("*, wods(wod_date, tipo, wod_content, origin_wod_id)")
     .in("wod_id", wodIds)
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
@@ -406,7 +407,7 @@ export async function listResultsForWods(wodIds, userId) {
 export async function listMyResults(userId) {
   const { data, error } = await supabase
     .from("wod_results")
-    .select("*, wods(wod_date, tipo, wod_content)")
+    .select("*, wods(wod_date, tipo, wod_content, origin_wod_id)")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
   if (error) throw error;
@@ -420,7 +421,7 @@ export async function addResult({ wodId, userId, time, rounds, reps, scaling, co
       wod_id: wodId, user_id: userId, time_result: time || null,
       rounds: rounds ?? null, reps: reps ?? null, scaling, comment: comment || null,
     })
-    .select("*, wods(wod_date, tipo, wod_content)")
+    .select("*, wods(wod_date, tipo, wod_content, origin_wod_id)")
     .single();
   if (error) throw error;
   return mapResultRow(data);
@@ -432,7 +433,7 @@ export async function markWodComplete(wodId, userId) {
   const { data, error } = await supabase
     .from("wod_results")
     .insert({ wod_id: wodId, user_id: userId, completed: true, scaling: null })
-    .select("*, wods(wod_date, tipo, wod_content)")
+    .select("*, wods(wod_date, tipo, wod_content, origin_wod_id)")
     .single();
   if (error) throw error;
   return mapResultRow(data);
@@ -559,4 +560,95 @@ export async function listHyroxSplits(userId) {
     seconds: Number(r.seconds),
     createdAt: r.created_at,
   }));
+}
+
+
+/* ============================================================
+   ACTIVIDAD DE ATLETAS (panel del coach)
+   ============================================================ */
+
+// Actividad reciente (últimos `days` días) de varios atletas a la vez:
+// resultados de WOD, rutinas completadas y parciales de Hyrox.
+export async function listAthletesActivity(athleteIds, days = 60) {
+  if (!athleteIds || !athleteIds.length) return {};
+  const since = new Date(Date.now() - days * 86400000).toISOString();
+  const sinceKey = since.slice(0, 10);
+  const [res, comp, hyx] = await Promise.all([
+    supabase.from("wod_results").select("*, wods(wod_date, tipo, wod_content, origin_wod_id)").in("user_id", athleteIds).gte("created_at", since),
+    supabase.from("routine_completions").select("*").in("user_id", athleteIds).gte("date_key", sinceKey),
+    supabase.from("hyrox_splits").select("user_id, created_at").in("user_id", athleteIds).gte("created_at", since),
+  ]);
+  const out = {};
+  athleteIds.forEach((id) => { out[id] = { results: [], completions: [], hyrox: [] }; });
+  (res.data || []).forEach((r) => { if (out[r.user_id]) out[r.user_id].results.push(mapResultRow(r)); });
+  (comp.data || []).forEach((r) => { if (out[r.user_id]) out[r.user_id].completions.push({ routineId: r.routine_id, dateKey: r.date_key }); });
+  (hyx.data || []).forEach((r) => { if (out[r.user_id]) out[r.user_id].hyrox.push({ createdAt: r.created_at }); });
+  return out;
+}
+
+/* ============================================================
+   COMENTARIOS DEL COACH EN RESULTADOS (migración v7)
+   ============================================================ */
+
+// Todos los comentarios sobre los resultados de un atleta (cada usuario
+// solo ve los que le corresponden por permisos de la base).
+export async function listCommentsForUser(athleteId) {
+  const { data, error } = await supabase
+    .from("result_comments")
+    .select("id, result_id, coach_id, body, created_at, profiles(name), wod_results!inner(user_id)")
+    .eq("wod_results.user_id", athleteId)
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+  return (data || []).map((c) => ({
+    id: c.id, resultId: c.result_id, coachId: c.coach_id, body: c.body,
+    createdAt: c.created_at, coachName: c.profiles?.name || "Coach",
+  }));
+}
+
+export async function addResultComment(resultId, coachId, body) {
+  const { data, error } = await supabase
+    .from("result_comments")
+    .insert({ result_id: resultId, coach_id: coachId, body })
+    .select("id, result_id, coach_id, body, created_at, profiles(name)")
+    .single();
+  if (error) throw error;
+  return {
+    id: data.id, resultId: data.result_id, coachId: data.coach_id, body: data.body,
+    createdAt: data.created_at, coachName: data.profiles?.name || "Coach",
+  };
+}
+
+export async function deleteResultComment(id) {
+  const { error } = await supabase.from("result_comments").delete().eq("id", id);
+  if (error) throw error;
+}
+
+/* ============================================================
+   PLANTILLAS DEL COACH (migración v7)
+   ============================================================ */
+
+export async function listTemplates(coachId, kind) {
+  const { data, error } = await supabase
+    .from("coach_templates")
+    .select("*")
+    .eq("coach_id", coachId)
+    .eq("kind", kind)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data || []).map((t) => ({ id: t.id, kind: t.kind, name: t.name, data: t.data || {} }));
+}
+
+export async function createTemplate(coachId, kind, name, data) {
+  const { data: row, error } = await supabase
+    .from("coach_templates")
+    .insert({ coach_id: coachId, kind, name, data })
+    .select()
+    .single();
+  if (error) throw error;
+  return { id: row.id, kind: row.kind, name: row.name, data: row.data || {} };
+}
+
+export async function deleteTemplate(id) {
+  const { error } = await supabase.from("coach_templates").delete().eq("id", id);
+  if (error) throw error;
 }

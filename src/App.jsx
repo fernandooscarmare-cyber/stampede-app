@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback, useId } from "react";
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
@@ -8,10 +8,11 @@ import {
   LogOut, Plus, X, Check, TrendingUp, ChevronLeft, ChevronRight, User,
   Eye, EyeOff, Trash2, Flame, ClipboardList, KeyRound,
   Zap, CheckCircle2, Clock, Repeat, Users, Link2, Unlink2, ArrowUpRight, Pencil, Upload, BarChart3,
-  Download, ShieldCheck, AlertTriangle, Percent,
+  Download, ShieldCheck, AlertTriangle, Percent, Trophy,
 } from "lucide-react";
 import * as db from "./db";
 import { supabase } from "./supabaseClient";
+import { HORSES } from "./horses";
 
 /* ========================================================================
    STAMPEDE — app de crossfit conectada a Supabase (auth real, RM, WODs,
@@ -115,32 +116,24 @@ function fmtRaceClock(totalSeconds) {
   return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}` : `${m}:${String(sec).padStart(2, "0")}`;
 }
 
+// Frases de atletas de CrossFit (citas textuales traducidas al español).
+// Fuente de las citas originales: BoxRox, "29 Inspiring Quotes from Crossfit and Weightlifting Athletes".
 const MOTIVATIONAL_QUOTES = [
-  "El dolor que sentís hoy va a ser la fuerza que sientas mañana.",
-  "No cuentes los días, hacé que los días cuenten.",
-  "Tu único límite sos vos.",
-  "La disciplina es elegir entre lo que querés ahora y lo que más querés.",
-  "No se trata de ser el mejor, se trata de ser mejor que ayer.",
-  "El cuerpo logra lo que la mente cree.",
-  "Cada rep cuenta. Cada ronda suma.",
-  "Sin excusas, con actitud.",
-  "El WOD no elige, vos sí.",
-  "La constancia le gana al talento cuando el talento no entrena.",
-  "Hoy entrenás para el atleta que querés ser mañana.",
-  "El cansancio es temporal, el orgullo queda para siempre.",
-  "No busques el momento perfecto, hacé que este momento valga.",
-  "Sumá un día más a tu racha.",
-  "Fuerte no es no tener días malos, es entrenar en los días malos.",
-  "Nadie dijo que iba a ser fácil, dijeron que iba a valer la pena.",
-  "El progreso no se ve todos los días, pero se acumula todos los días.",
-  "Compará tu marca de hoy con la tuya de ayer, no con la de al lado.",
-  "Lo que se mide, mejora. Anotá tu resultado.",
-  "La motivación te trae al box, el hábito te hace volver.",
-  "Un WOD más duro es una versión mejor de vos mismo.",
-  "No hay atajos, hay rutina.",
-  "El chalk no reemplaza el trabajo, pero ayuda a sostenerlo.",
-  "Tu marca personal de hoy fue tu límite de ayer.",
-  "Entrená como si el atleta que querés ser te estuviera mirando.",
+  { name: "Mat Fraser", quote: "No entrenás para imaginarte en el segundo puesto del podio. El segundo puesto es una porquería." },
+  { name: "Rich Froning", quote: "El cuerpo humano es una máquina increíble, pero la mayoría de la gente solo saca de ella lo que su mente le permite." },
+  { name: "Rich Froning", quote: "No voy a dejar que nadie trabaje más que yo." },
+  { name: "Julie Foucher", quote: "Podés quedarte quejándote y enojado por lo que pasó, pero al final del día no podés cambiar nada." },
+  { name: "Julie Foucher", quote: "CrossFit nos obliga a preguntarnos: ¿Quién soy? ¿De qué estoy hecho?" },
+  { name: "Camille Leblanc-Bazinet", quote: "Mi consejo es muy simple: si querés algo, matate trabajando por eso." },
+  { name: "Camille Leblanc-Bazinet", quote: "Cuando entreno, borro todos los límites y expectativas de lo que puedo hacer. Soy poderosa y todo es posible." },
+  { name: "Brooke Ence", quote: "Sí, claro que voy a divertirme, pero voy a subir al podio." },
+  { name: "Lauren Fisher", quote: "Nunca le pongas un límite de edad a tus sueños." },
+  { name: "Ben Smith", quote: "CrossFit es una forma de vida. Comés bien, entrenás duro, te exigís. Te enseña muchísimo sobre vos mismo." },
+  { name: "Mark Smith", quote: "Yo diría que nunca te rindas. Cuando empecé CrossFit todo parecía imposible, pero nunca dejé que ningún movimiento me ganara." },
+  { name: "Lindy Barber", quote: "No dejes que el éxito se te suba a la cabeza ni que el fracaso te llegue al corazón." },
+  { name: "Stacie Tovar", quote: "Soy una trabajadora incansable. Cien por ciento pura sangre." },
+  { name: "Daniel Casey", quote: "Quiero que la gente me mire y vea que no son solo los Froning del mundo los que pueden hacer esto… también la gente común." },
+  { name: "Amanda Turner", quote: "Cuando estoy en el box me siento normal, como todos los demás. Y hago los WODs como todos los demás." },
 ];
 
 function getQuoteOfDay() {
@@ -151,13 +144,16 @@ function getQuoteOfDay() {
 }
 
 function QuoteOfDay() {
-  const quote = useMemo(() => getQuoteOfDay(), []);
+  const q = useMemo(() => getQuoteOfDay(), []);
   return (
     <div className="box-card" style={{ marginBottom: 18, borderLeft: "3px solid var(--amber)" }}>
       <div className="box-h3" style={{ marginBottom: 6 }}>Frase del día</div>
       <p style={{ fontFamily: "'Rajdhani', sans-serif", fontWeight: 600, fontSize: 17, fontStyle: "italic", margin: 0, lineHeight: 1.3 }}>
-        "{quote}"
+        "{q.quote}"
       </p>
+      <div style={{ marginTop: 8, fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 14, letterSpacing: 0.5, color: "var(--amber)", textTransform: "uppercase" }}>
+        — {q.name}
+      </div>
     </div>
   );
 }
@@ -333,6 +329,88 @@ function formatResultValue(n) {
   if (n.rounds != null && n.rounds !== "") parts.push(`${n.rounds}${n.reps ? `+${n.reps}` : ""} rondas`);
   if (parts.length) return parts.join(" · ");
   return n.completed ? "Completado" : "—";
+}
+
+/* ---------------------------- PRs automáticos ---------------------------- */
+
+// Puntaje comparable de un resultado: tiempo (menor es mejor) o rondas+reps (mayor es mejor).
+function resultScore(r) {
+  if (!r) return null;
+  const t = parseClockSeconds(r.time);
+  if (t != null && t > 0) return { kind: "time", v: t };
+  if (r.rounds != null && r.rounds !== "") return { kind: "rounds", v: Number(r.rounds) * 1000 + Number(r.reps || 0) };
+  return null;
+}
+
+function isBetterScore(a, b) {
+  if (!a || !b || a.kind !== b.kind) return false;
+  return a.kind === "time" ? a.v < b.v : a.v > b.v;
+}
+
+function announcePR(detail) {
+  try { window.dispatchEvent(new CustomEvent("stampede:pr", { detail })); } catch (e) { /* nada */ }
+}
+
+// Nuevo récord de RM: se llama ANTES de guardar el registro nuevo.
+async function checkRmPR(userId, exercise, weight, unit) {
+  try {
+    const records = await db.listRmRecords(userId);
+    const prev = records.filter((r) => r.exercise === exercise && r.unit === unit);
+    if (!prev.length) return;
+    const best = Math.max(...prev.map((r) => r.weight));
+    if (Number(weight) > best) {
+      announcePR({ title: "¡Nuevo PR!", detail: `${exercise}: ${weight} ${unit}`, sub: `Tu marca anterior era ${best} ${unit}` });
+    }
+  } catch (e) { /* un fallo acá nunca debe impedir guardar */ }
+}
+
+// Nuevo récord en un WOD repetido: se llama DESPUÉS de guardar el resultado.
+async function checkWodPR({ wod, coachId, userId, saved }) {
+  try {
+    const sc = resultScore(saved);
+    if (!sc || !wod || !coachId) return;
+    const lin = await db.listWodLineage(wod, coachId);
+    const all = await db.listResultsForWods(lin.map((w) => w.id), userId);
+    const prior = all.filter((r) => r.id !== saved.id && (r.scaling || "") === (saved.scaling || "") && resultScore(r) && resultScore(r).kind === sc.kind);
+    if (!prior.length) return;
+    const better = prior.every((r) => isBetterScore(sc, resultScore(r)));
+    if (!better) return;
+    const prevBest = prior.reduce((b, r) => (isBetterScore(resultScore(r), resultScore(b)) ? r : b), prior[0]);
+    announcePR({ title: "¡Nuevo PR!", detail: `${wod.tipo}: ${formatResultValue(saved)}`, sub: `Tu mejor marca anterior era ${formatResultValue(prevBest)}` });
+  } catch (e) { /* nada */ }
+}
+
+function PRBanner() {
+  const [pr, setPr] = useState(null);
+  useEffect(() => {
+    let timer;
+    const onPr = (e) => {
+      setPr(e.detail);
+      clearTimeout(timer);
+      timer = setTimeout(() => setPr(null), 7000);
+    };
+    window.addEventListener("stampede:pr", onPr);
+    return () => { window.removeEventListener("stampede:pr", onPr); clearTimeout(timer); };
+  }, []);
+  if (!pr) return null;
+  return (
+    <div onClick={() => setPr(null)} style={{
+      position: "fixed", top: 14, left: 14, right: 14, zIndex: 9999, maxWidth: 460, margin: "0 auto",
+      background: "var(--amber)", color: "#0a1412", borderRadius: 16, padding: "14px 16px",
+      display: "flex", alignItems: "center", gap: 12, boxShadow: "0 10px 30px rgba(0,0,0,0.35)", cursor: "pointer",
+      animation: "prpop .35s ease-out",
+    }}>
+      <style>{"@keyframes prpop{0%{transform:translateY(-30px) scale(.9);opacity:0}100%{transform:none;opacity:1}}"}</style>
+      <div style={{ width: 44, height: 44, borderRadius: 22, background: "rgba(10,20,18,0.15)", display: "flex", alignItems: "center", justifyContent: "center", flex: "0 0 auto" }}>
+        <Trophy size={24} />
+      </div>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 20, letterSpacing: 0.5, textTransform: "uppercase" }}>{pr.title}</div>
+        <div style={{ fontWeight: 700, fontSize: 15 }}>{pr.detail}</div>
+        {pr.sub && <div style={{ fontSize: 12, opacity: 0.8 }}>{pr.sub}</div>}
+      </div>
+    </div>
+  );
 }
 
 function defaultPlanOwner(user) {
@@ -601,10 +679,6 @@ function GlobalStyle() {
         background: var(--amber-tint); color: var(--amber-ink); flex-shrink: 0;
         border-radius: 50%;
       }
-      @keyframes stampede-run {
-        from { transform: translateX(260px); }
-        to { transform: translateX(-40px); }
-      }
       .box-card, .wod-row, .stat-chip, .greeting-card { transition: border-color 0.15s ease, transform 0.1s ease; }
       .wod-row:hover { border-left-color: var(--olive); }
       .icon-btn-circle { transition: background 0.12s ease, transform 0.08s ease; }
@@ -614,22 +688,71 @@ function GlobalStyle() {
   );
 }
 
+function HorseShape({ k, x = 0, y = 0, scale = 1, opacity = 1, fill }) {
+  const h = HORSES[k];
+  return (
+    <g transform={`translate(${x} ${y}) scale(${scale})`} opacity={opacity} fill={fill}>
+      <path fillRule="evenodd" d={h.d} />
+    </g>
+  );
+}
+
 function StampedeLoaderAnim() {
+  const gid = useId().replace(/:/g, "");
+  // 3 caballos de distinto tamaño; cada uno cicla las poses g1 → g2 → g3 → g2
   const horses = [
-    { size: 30, top: "18%", delay: 0, duration: 2.1, opacity: 0.55 },
-    { size: 44, top: "38%", delay: 0.25, duration: 1.7, opacity: 0.85 },
-    { size: 56, top: "58%", delay: 0.1, duration: 1.95, opacity: 1 },
-    { size: 22, top: "8%", delay: 0.5, duration: 2.4, opacity: 0.35 },
+    { w: 52, bottom: 32, delay: 0.1, duration: 2.3, opacity: 0.4 },
+    { w: 70, bottom: 20, delay: 0.55, duration: 2.0, opacity: 0.7 },
+    { w: 96, bottom: 8, delay: 0, duration: 1.8, opacity: 1 },
   ];
+  const poses = ["g1", "g2", "g3"];
   return (
     <div style={{ textAlign: "center" }}>
-      <div style={{ position: "relative", width: 260, height: 110, margin: "0 auto", overflow: "hidden" }}>
-        {horses.map((h, i) => (
-          <span key={i} style={{
-            position: "absolute", top: h.top, left: 0, fontSize: h.size, lineHeight: 1,
-            color: "var(--amber)", opacity: h.opacity,
-            animation: `stampede-run ${h.duration}s linear infinite`, animationDelay: `${h.delay}s`,
-          }}>♞</span>
+      <style>{`
+        @keyframes stampede-run { from { transform: translateX(300px); } to { transform: translateX(-130px); } }
+        @keyframes stampede-pose-a { 0%, 24.99% { opacity: 1; } 25%, 100% { opacity: 0; } }
+        @keyframes stampede-pose-b { 0%, 24.99% { opacity: 0; } 25%, 49.99% { opacity: 1; } 50%, 74.99% { opacity: 0; } 75%, 100% { opacity: 1; } }
+        @keyframes stampede-pose-c { 0%, 49.99% { opacity: 0; } 50%, 74.99% { opacity: 1; } 75%, 100% { opacity: 0; } }
+        @keyframes stampede-dust { from { transform: translateX(300px); opacity: .0; } 20% { opacity: .35; } to { transform: translateX(-130px); opacity: 0; } }
+      `}</style>
+      <svg width="0" height="0" style={{ position: "absolute" }} aria-hidden="true">
+        <defs>
+          <linearGradient id={`tg-${gid}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="#6ff5df" />
+            <stop offset="1" stopColor="#12a08b" />
+          </linearGradient>
+        </defs>
+      </svg>
+      <div style={{ position: "relative", width: 260, height: 120, margin: "0 auto", overflow: "hidden" }}>
+        {horses.map((h, i) => {
+          const hh = h.w * (726 / 914);
+          return (
+            <div key={i} style={{
+              position: "absolute", left: 0, bottom: h.bottom, width: h.w, height: hh * 1.15,
+              opacity: h.opacity, animation: `stampede-run ${h.duration}s linear infinite`, animationDelay: `${h.delay}s`,
+            }}>
+              <div style={{
+                position: "absolute", left: "-10%", bottom: -2, width: "70%", height: 6, borderRadius: "50%",
+                background: "var(--amber)", filter: "blur(3px)", opacity: 0.3,
+              }} />
+              {poses.map((k, pi) => (
+                <svg key={k} viewBox={`0 0 ${HORSES[k].w} ${HORSES[k].h}`} preserveAspectRatio="xMaxYMax meet"
+                  style={{
+                    position: "absolute", inset: 0, width: "100%", height: "100%", overflow: "visible",
+                    animation: `stampede-pose-${["a", "b", "c"][pi]} ${0.56 + i * 0.04}s step-end infinite`,
+                    opacity: pi === 0 ? 1 : 0,
+                  }}>
+                  <path fillRule="evenodd" d={HORSES[k].d} fill={`url(#tg-${gid})`} />
+                </svg>
+              ))}
+            </div>
+          );
+        })}
+        {[14, 30, 46].map((t, i) => (
+          <div key={t} style={{
+            position: "absolute", top: t, left: 60 + i * 14, width: 34 - i * 6, height: 2, borderRadius: 1,
+            background: "var(--amber)", animation: `stampede-dust ${1.6 + i * 0.25}s linear infinite`, animationDelay: `${i * 0.3}s`,
+          }} />
         ))}
       </div>
       <p className="box-muted" style={{ marginTop: 4 }}>Cargando…</p>
@@ -638,12 +761,20 @@ function StampedeLoaderAnim() {
 }
 
 function StampedeLogo({ height = 30 }) {
+  const gid = useId().replace(/:/g, "");
+  const W = 1560, H = 700;
   return (
-    <div style={{ position: "relative", width: height * 1.55, height, flexShrink: 0 }}>
-      <span style={{ position: "absolute", left: 0, bottom: 0, fontSize: height * 0.44, lineHeight: 1, color: "var(--amber)", opacity: 0.35 }}>♞</span>
-      <span style={{ position: "absolute", left: height * 0.35, bottom: 0, fontSize: height * 0.58, lineHeight: 1, color: "var(--amber)", opacity: 0.6 }}>♞</span>
-      <span style={{ position: "absolute", left: height * 0.68, bottom: 0, fontSize: height * 0.78, lineHeight: 1, color: "var(--amber)" }}>♞</span>
-    </div>
+    <svg width={(height * W) / H} height={height} viewBox={`0 0 ${W} ${H}`} style={{ flexShrink: 0, overflow: "visible", display: "block" }} aria-label="Stampede" role="img">
+      <defs>
+        <linearGradient id={`lg-${gid}`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#6ff5df" />
+          <stop offset="1" stopColor="#12a08b" />
+        </linearGradient>
+      </defs>
+      <HorseShape k="g1" x={0} y={200} scale={0.55} opacity={0.4} fill={`url(#lg-${gid})`} />
+      <HorseShape k="g3" x={330} y={110} scale={0.68} opacity={0.7} fill={`url(#lg-${gid})`} />
+      <HorseShape k="g2" x={620} y={20} scale={0.95} fill={`url(#lg-${gid})`} />
+    </svg>
   );
 }
 
@@ -780,7 +911,7 @@ function AuthScreen({ onLogin }) {
     <div className="box-auth-wrap">
       <div className="box-auth-card">
         <div style={{ textAlign: "center", marginBottom: 22 }}>
-          <div style={{ display: "flex", justifyContent: "center", marginBottom: 8 }}><StampedeLogo height={44} /></div>
+          <div style={{ display: "flex", justifyContent: "center", marginBottom: 8 }}><StampedeLogo height={62} /></div>
           <h1 className="box-h1" style={{ fontSize: 38 }}><span className="brand-word">STAMPEDE</span></h1>
           <div style={{ height: 4, width: 64, margin: "10px auto 12px", background: "repeating-linear-gradient(-45deg, var(--amber) 0 5px, transparent 5px 10px)" }} />
           <p className="box-muted">Tu WOD, tus RM y tus tiempos, en un solo lugar.</p>
@@ -1491,12 +1622,89 @@ function wodIconFor(tipo = "") {
   return Dumbbell;
 }
 
-function WodBoard({ user, onUserUpdate, onCoachesReload }) {
+/* ---------------------------- plantillas del coach ---------------------------- */
+
+function TemplateBar({ coachId, kind, getData, onApply, filter }) {
+  const [templates, setTemplates] = useState(null); // null = cargando, false = no disponible todavía
+  const [picked, setPicked] = useState("");
+  const [naming, setNaming] = useState(false);
+  const [name, setName] = useState("");
+  const [confirmDel, setConfirmDel] = useState(false);
+  const [err, setErr] = useState("");
+
+  const load = useCallback(() => {
+    db.listTemplates(coachId, kind).then(setTemplates).catch(() => setTemplates(false));
+  }, [coachId, kind]);
+  useEffect(() => { load(); }, [load]);
+
+  if (templates === null || templates === false) return null; // sin migración v7 no se muestra nada
+  const visible = filter ? templates.filter(filter) : templates;
+
+  const apply = (id) => {
+    setPicked(id); setConfirmDel(false);
+    const t = visible.find((x) => x.id === id);
+    if (t) onApply(t.data);
+  };
+
+  const save = async () => {
+    const n = name.trim();
+    if (!n) { setErr("Ponele un nombre a la plantilla."); return; }
+    try {
+      await db.createTemplate(coachId, kind, n, getData());
+      setNaming(false); setName(""); setErr("");
+      load();
+    } catch (e) { setErr(e.message || "No se pudo guardar la plantilla."); }
+  };
+
+  const remove = async () => {
+    try { await db.deleteTemplate(picked); } catch (e) { /* nada */ }
+    setPicked(""); setConfirmDel(false);
+    load();
+  };
+
+  return (
+    <div style={{ background: "var(--panel-2)", borderRadius: 12, padding: 10, marginBottom: 14 }}>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        {visible.length > 0 && (
+          <select className="box-select" style={{ flex: "1 1 180px", minWidth: 0 }} value={picked} onChange={(e) => apply(e.target.value)}>
+            <option value="">Usar plantilla…</option>
+            {visible.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+        )}
+        {picked && !confirmDel && (
+          <button type="button" className="icon-btn-circle" style={{ width: 28, height: 28 }} onClick={() => setConfirmDel(true)} title="Borrar plantilla"><Trash2 size={13} /></button>
+        )}
+        {picked && confirmDel && (
+          <>
+            <button type="button" className="box-btn box-btn-danger" style={{ padding: "4px 10px", fontSize: 12 }} onClick={remove}>Borrar plantilla</button>
+            <button type="button" className="box-btn box-btn-ghost" style={{ padding: "4px 10px", fontSize: 12 }} onClick={() => setConfirmDel(false)}>No</button>
+          </>
+        )}
+        {!naming && (
+          <button type="button" className="box-btn box-btn-ghost" style={{ padding: "6px 12px", fontSize: 13 }} onClick={() => { setNaming(true); setErr(""); }}>
+            <Plus size={13} /> Guardar como plantilla
+          </button>
+        )}
+      </div>
+      {naming && (
+        <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <input className="box-input" style={{ flex: "1 1 180px" }} placeholder="Nombre de la plantilla" value={name} maxLength={80} onChange={(e) => setName(e.target.value)} />
+          <button type="button" className="box-btn box-btn-primary" onClick={save}><Check size={14} /> Guardar</button>
+          <button type="button" className="box-btn box-btn-ghost" onClick={() => { setNaming(false); setErr(""); }}><X size={14} /></button>
+        </div>
+      )}
+      {err && <div className="box-error" style={{ marginTop: 8 }}>{err}</div>}
+    </div>
+  );
+}
+
+function WodBoard({ user, onUserUpdate, onCoachesReload, sourceKey, onSourceChange }) {
   const [rawWods, setRawWods] = useState(null);
   const [loading, setLoading] = useState(true);
   const [filterDate, setFilterDate] = useState("");
   const [openRow, setOpenRow] = useState(null);
   const [resultsByWod, setResultsByWod] = useState({});
+  const [coachComments, setCoachComments] = useState({});
   const [formTime, setFormTime] = useState("");
   const [formRounds, setFormRounds] = useState("");
   const [formReps, setFormReps] = useState("");
@@ -1535,10 +1743,11 @@ function WodBoard({ user, onUserUpdate, onCoachesReload }) {
     return list;
   }, [isCoach, coaches, user.id]);
 
-  const [sourceKey, setSourceKey] = useState(null);
+  // El coach/plan elegido vive en App (no acá) para que no se pierda al cambiar de pantalla.
+  const setSourceKey = (k) => onSourceChange && onSourceChange(k);
   useEffect(() => {
     if (sources.length && (!sourceKey || !sources.some((s) => s.key === sourceKey))) {
-      setSourceKey(sources[0].key);
+      onSourceChange && onSourceChange(sources[0].key, { auto: true });
     }
   }, [sources, sourceKey]);
 
@@ -1569,6 +1778,12 @@ function WodBoard({ user, onUserUpdate, onCoachesReload }) {
     const map = {};
     list.forEach((n) => { (map[n.wodId] = map[n.wodId] || []).push(n); });
     setResultsByWod(map);
+    // Comentarios que el coach dejó sobre estos resultados (si la migración v7 no está, no pasa nada).
+    db.listCommentsForUser(user.id).then((cs) => {
+      const byRes = {};
+      cs.forEach((c) => { (byRes[c.resultId] = byRes[c.resultId] || []).push(c); });
+      setCoachComments(byRes);
+    }).catch(() => {});
   }, [user.id]);
 
   useEffect(() => { loadResults(); }, [loadResults]);
@@ -1598,11 +1813,12 @@ function WodBoard({ user, onUserUpdate, onCoachesReload }) {
   }, [rows]);
 
   const saveNote = async (row) => {
-    await db.addResult({
+    const saved = await db.addResult({
       wodId: row.id, userId: user.id, time: formTime,
       rounds: formRounds ? Number(formRounds) : null, reps: formReps ? Number(formReps) : null,
       scaling: formScaling, comment: formComment,
     });
+    checkWodPR({ wod: row, coachId: planOwnerId, userId: user.id, saved });
     await loadResults();
     setFormTime(""); setFormRounds(""); setFormReps(""); setFormComment(""); setFormScaling("RX");
     setOpenRow(null);
@@ -1765,6 +1981,20 @@ function WodBoard({ user, onUserUpdate, onCoachesReload }) {
       {showForm && canEdit && (
         <div className="box-card" style={{ marginBottom: 18 }}>
           <h3 className="box-h3" style={{ marginBottom: 10 }}>{editingId ? "Editar WOD" : "Nuevo WOD"}</h3>
+          <TemplateBar
+            coachId={user.id}
+            kind="wod"
+            getData={() => ({
+              tipo: formTipo, movilidad: formMovilidad, core: formCore, skillType: formSkillType,
+              skillContent: formSkillContent, estructura: formEstructura, wod: formWod, extraNotes: formExtra,
+            })}
+            onApply={(d) => {
+              setFormTipo(d.tipo || "For Time");
+              setFormMovilidad(d.movilidad || ""); setFormCore(d.core || "");
+              setFormSkillType(d.skillType || "Gimnástico"); setFormSkillContent(d.skillContent || "");
+              setFormEstructura(d.estructura || ""); setFormWod(d.wod || ""); setFormExtra(d.extraNotes || "");
+            }}
+          />
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
             <div style={{ width: 160 }}>
               <label className="box-label">Fecha *</label>
@@ -1967,6 +2197,11 @@ function WodBoard({ user, onUserUpdate, onCoachesReload }) {
                         </>
                       )}
                       {n.comment ? <div style={{ marginTop: 3 }}>{n.comment}</div> : null}
+                      {(coachComments[n.id] || []).map((c) => (
+                        <div key={c.id} style={{ marginTop: 6, padding: "6px 10px", background: "var(--amber-tint)", color: "var(--amber-ink)", borderRadius: 8, fontSize: 13 }}>
+                          <b>{c.coachName}:</b> {c.body}
+                        </div>
+                      ))}
                     </div>
                   ))}
                 </div>
@@ -2085,6 +2320,88 @@ function RmPercentCalculator({ exercises, byExercise }) {
   );
 }
 
+function MyPRsCard({ user, records }) {
+  const [results, setResults] = useState(null);
+  const [showAll, setShowAll] = useState(false);
+  useEffect(() => { db.listMyResults(user.id).then(setResults).catch(() => setResults([])); }, [user.id]);
+
+  const rmBests = useMemo(() => {
+    const map = {};
+    (records || []).forEach((r) => {
+      const k = r.exercise + "|" + r.unit;
+      if (!map[k] || r.weight > map[k].weight || (r.weight === map[k].weight && r.date > map[k].date)) map[k] = r;
+    });
+    return Object.values(map).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  }, [records]);
+
+  // WODs que se repitieron: mejor marca por WOD (separando RX y Scaled).
+  const wodBests = useMemo(() => {
+    const groups = {};
+    (results || []).forEach((r) => {
+      const sc = resultScore(r);
+      if (!sc) return;
+      const k = (r.originWodId || r.wodId) + "|" + (r.scaling || "") + "|" + sc.kind;
+      (groups[k] = groups[k] || []).push({ r, sc });
+    });
+    return Object.values(groups)
+      .filter((g) => g.length >= 2)
+      .map((g) => {
+        const best = g.reduce((b, x) => (isBetterScore(x.sc, b.sc) ? x : b), g[0]);
+        return { best: best.r, count: g.length };
+      })
+      .sort((a, b) => (b.best.dateKey || "").localeCompare(a.best.dateKey || ""));
+  }, [results]);
+
+  if (!rmBests.length && !wodBests.length) return null;
+  const rmShown = showAll ? rmBests : rmBests.slice(0, 5);
+  const wodShown = showAll ? wodBests : wodBests.slice(0, 5);
+  const hasMore = rmBests.length > 5 || wodBests.length > 5;
+
+  return (
+    <div className="box-card" style={{ marginBottom: 18, borderLeft: "3px solid var(--amber)" }}>
+      <h2 className="box-h2" style={{ marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}><Trophy size={18} /> Mis PRs</h2>
+      {rmShown.length > 0 && (
+        <>
+          <div className="box-label" style={{ marginBottom: 4 }}>Levantamientos</div>
+          {rmShown.map((r) => (
+            <div className="rm-row" key={r.exercise + r.unit}>
+              <div><b>{r.exercise}</b></div>
+              <div style={{ textAlign: "right" }}>
+                <b>{r.weight} {r.unit}</b>
+                <div className="box-muted" style={{ fontSize: 11 }}>{r.date}</div>
+              </div>
+            </div>
+          ))}
+        </>
+      )}
+      {wodShown.length > 0 && (
+        <>
+          <div className="box-label" style={{ margin: "12px 0 4px" }}>WODs repetidos</div>
+          {wodShown.map((w) => (
+            <div className="rm-row" key={(w.best.originWodId || w.best.wodId) + w.best.scaling + w.best.id}>
+              <div style={{ minWidth: 0 }}>
+                <b>{w.best.tipo}</b>
+                <div className="box-muted" style={{ fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 220 }}>
+                  {(w.best.wod || "").split("\n")[0]}
+                </div>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <b>{formatResultValue(w.best)}</b>
+                <div className="box-muted" style={{ fontSize: 11 }}>{w.best.scaling} · {w.count} veces</div>
+              </div>
+            </div>
+          ))}
+        </>
+      )}
+      {hasMore && (
+        <button className="box-btn box-btn-ghost" style={{ marginTop: 10, padding: "5px 10px", fontSize: 12 }} onClick={() => setShowAll((v) => !v)}>
+          {showAll ? "Ver menos" : "Ver todos"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function RmTracker({ user }) {
   const [records, setRecords] = useState(null);
   const [customExercises, setCustomExercises] = useState([]);
@@ -2115,6 +2432,7 @@ function RmTracker({ user }) {
 
   const addRecord = async () => {
     if (!weight) return;
+    await checkRmPR(user.id, selected, weight, unit);
     await db.addRmRecord(user.id, { exercise: selected, weight: Number(weight), unit, date, note });
     reload();
     setWeight(""); setNote("");
@@ -2214,6 +2532,8 @@ function RmTracker({ user }) {
           <button className="box-btn box-btn-ghost" onClick={addCustomExercise}>Agregar</button>
         </div>
       </div>
+
+      <MyPRsCard user={user} records={records} />
 
       <RmPercentCalculator exercises={exercises} byExercise={byExercise} />
 
@@ -2345,7 +2665,7 @@ function LinkResultToWod({ user, kind, value, onDone, onCancel }) {
       (user.coaches || []).forEach((c) => { if (c.id) coachIds.push(c.id); });
       if (coachIds.length === 0) { setWods([]); return; }
       const lists = await Promise.all(coachIds.map((id) => db.listWods(id)));
-      const merged = lists.flat();
+      const merged = lists.map((l, i) => l.map((w) => ({ ...w, _coachId: coachIds[i] }))).flat();
       const sorted = merged.slice().sort((a, b) => (b.dateKey || "").localeCompare(a.dateKey || "")).slice(0, 30);
       setWods(sorted);
       const today = todayKey();
@@ -2358,10 +2678,12 @@ function LinkResultToWod({ user, kind, value, onDone, onCancel }) {
     if (!wodId) { setErr("No hay ningún WOD para vincular todavía."); return; }
     setSaving(true);
     try {
-      await db.addResult({
+      const saved = await db.addResult({
         wodId, userId: user.id, time: time || null, rounds: rounds ? Number(rounds) : null,
         reps: reps ? Number(reps) : null, scaling, comment,
       });
+      const picked = (wods || []).find((w) => w.id === wodId);
+      if (picked) checkWodPR({ wod: picked, coachId: picked._coachId, userId: user.id, saved });
       setSaving(false);
       onDone();
     } catch (e) {
@@ -2959,9 +3281,91 @@ function SettingsScreen({ user, onLogout, onUserUpdate, onCoachesReload }) {
 
 /* ============================== COACH: ATLETAS ============================== */
 
-function AthleteDetail({ athlete, onBack, onUnlink }) {
+// Resume la actividad de un atleta (WODs, rutinas, Hyrox) para el panel y la ficha del coach.
+function summarizeActivity(act) {
+  const today = todayKey();
+  const dateSet = new Set();
+  const todayItems = [];
+  ((act && act.results) || []).forEach((r) => {
+    const keys = [r.savedAt ? toKey(new Date(r.savedAt)) : null, r.dateKey].filter(Boolean);
+    keys.forEach((k) => dateSet.add(k));
+    if (keys.includes(today)) {
+      const hasValue = r.time || (r.rounds != null && r.rounds !== "");
+      todayItems.push(`${r.tipo || "WOD"}${hasValue ? ` · ${formatResultValue(r)}` : " · completado"}${r.scaling ? ` (${r.scaling})` : ""}`);
+    }
+  });
+  let routineToday = false;
+  ((act && act.completions) || []).forEach((c) => { dateSet.add(c.dateKey); if (c.dateKey === today) routineToday = true; });
+  if (routineToday) todayItems.push("Rutina del día completada");
+  let hyroxToday = false;
+  ((act && act.hyrox) || []).forEach((h) => {
+    const k = toKey(new Date(h.createdAt));
+    dateSet.add(k);
+    if (k === today) hyroxToday = true;
+  });
+  if (hyroxToday) todayItems.push("Simulacro Hyrox");
+  const dateKeys = Array.from(dateSet).filter((k) => k <= today);
+  const lastKey = dateKeys.slice().sort().pop() || null;
+  return { dateKeys, todayItems, lastKey };
+}
+
+function daysAgoLabel(key) {
+  if (!key) return "Sin actividad";
+  const n = Math.round((new Date(todayKey() + "T00:00:00") - new Date(key + "T00:00:00")) / 86400000);
+  if (n <= 0) return "Hoy";
+  if (n === 1) return "Ayer";
+  return `Hace ${n} días`;
+}
+
+function AthleteDetail({ athlete, user, onBack, onUnlink }) {
   const { rmRecords, results: notesFlat } = useAthleteData(athlete.id);
   const [selected, setSelected] = useState(null);
+  const [completions, setCompletions] = useState([]);
+  const [hyroxSplits, setHyroxSplits] = useState([]);
+  const [comments, setComments] = useState([]);
+  const [commentsOk, setCommentsOk] = useState(false); // false hasta correr la migración v7
+  const [openCommentFor, setOpenCommentFor] = useState(null);
+  const [draft, setDraft] = useState("");
+  const [commentErr, setCommentErr] = useState("");
+
+  useEffect(() => {
+    db.listRoutineCompletions(athlete.id).then(setCompletions).catch(() => {});
+    db.listHyroxSplits(athlete.id).then(setHyroxSplits).catch(() => {});
+    db.listCommentsForUser(athlete.id).then((c) => { setComments(c); setCommentsOk(true); }).catch(() => setCommentsOk(false));
+  }, [athlete.id]);
+
+  const commentsByResult = useMemo(() => {
+    const map = {};
+    comments.forEach((c) => { (map[c.resultId] = map[c.resultId] || []).push(c); });
+    return map;
+  }, [comments]);
+
+  const sendComment = async (resultId) => {
+    const body = draft.trim();
+    if (!body) return;
+    setCommentErr("");
+    try {
+      const c = await db.addResultComment(resultId, user.id, body);
+      setComments((list) => [...list, c]);
+      setDraft(""); setOpenCommentFor(null);
+    } catch (e) {
+      setCommentErr(e.message || "No se pudo guardar el comentario.");
+    }
+  };
+
+  const removeComment = async (id) => {
+    try { await db.deleteResultComment(id); setComments((list) => list.filter((c) => c.id !== id)); } catch (e) { /* nada */ }
+  };
+
+  const activity = useMemo(
+    () => summarizeActivity({
+      results: notesFlat, completions,
+      hyrox: hyroxSplits.map((h) => ({ createdAt: h.createdAt })),
+    }),
+    [notesFlat, completions, hyroxSplits]
+  );
+  const athleteStreaks = useMemo(() => computeStreaks(activity.dateKeys), [activity]);
+  const hyroxSessions = useMemo(() => new Set(hyroxSplits.map((h) => h.sessionId)).size, [hyroxSplits]);
 
   const byExercise = useMemo(() => {
     const map = {};
@@ -3001,10 +3405,22 @@ function AthleteDetail({ athlete, onBack, onUnlink }) {
           <div className="avatar-circle">{athlete.name.trim().charAt(0).toUpperCase()}</div>
           <div>
             <div className="greeting-name">{athlete.name}</div>
-            <div className="box-muted">Ficha técnica</div>
+            <div className="box-muted">Ficha técnica · {modalityLabel(athlete.modality)}</div>
           </div>
         </div>
         <button className="box-btn box-btn-danger" onClick={() => onUnlink(athlete.id)}><Unlink2 size={14} /> Desvincular</button>
+      </div>
+
+      <div className="stats-row">
+        <StatChip icon={Clock} value={daysAgoLabel(activity.lastKey)} label="Última actividad" tint="amber" />
+        <StatChip icon={Flame} value={athleteStreaks.current} label="Racha actual (días)" tint="rust" />
+        <StatChip icon={TrendingUp} value={athleteStreaks.best} label="Mejor racha (días)" tint="olive" />
+        {(athlete.modality === "gap" || athlete.modality === "musculacion") && (
+          <StatChip icon={CheckCircle2} value={completions.length} label="Rutinas completadas" tint="olive" />
+        )}
+        {athlete.modality === "hyrox" && (
+          <StatChip icon={CheckCircle2} value={hyroxSessions} label="Simulacros Hyrox" tint="olive" />
+        )}
       </div>
 
       <div className="stats-row">
@@ -3073,15 +3489,44 @@ function AthleteDetail({ athlete, onBack, onUnlink }) {
       <div className="box-card">
         <h3 className="box-h3" style={{ marginBottom: 10 }}>Últimos resultados de WOD</h3>
         {recentResults.length === 0 && <p className="box-muted">Todavía no registró resultados de WOD.</p>}
-        {recentResults.map((n) => (
-          <div className="rm-row" key={n.id}>
-            <div>
-              <b>{n.tipo}</b> <span className="box-muted">· {n.dateKey}</span>
-              {n.comment && <div className="box-muted">{n.comment}</div>}
+        {recentResults.map((n) => {
+          const cs = commentsByResult[n.id] || [];
+          return (
+            <div key={n.id}>
+              <div className="rm-row">
+                <div>
+                  <b>{n.tipo}</b> <span className="box-muted">· {n.dateKey}</span>
+                  {n.comment && <div className="box-muted">{n.comment}</div>}
+                </div>
+                <span>{formatResultValue(n)} <span className="box-muted">({n.scaling})</span></span>
+              </div>
+              {cs.map((c) => (
+                <div key={c.id} style={{ margin: "4px 0 4px 12px", padding: "6px 10px", background: "var(--amber-tint)", color: "var(--amber-ink)", borderRadius: 8, fontSize: 13, display: "flex", justifyContent: "space-between", gap: 8 }}>
+                  <span><b>{c.coachName}:</b> {c.body}</span>
+                  {c.coachId === user.id && (
+                    <button onClick={() => removeComment(c.id)} title="Borrar comentario" style={{ background: "none", border: "none", color: "inherit", cursor: "pointer", padding: 0 }}><X size={13} /></button>
+                  )}
+                </div>
+              ))}
+              {commentsOk && (openCommentFor === n.id ? (
+                <div style={{ margin: "4px 0 8px 12px" }}>
+                  <textarea className="box-input" rows={2} maxLength={500} autoFocus style={{ resize: "vertical", fontFamily: "'Barlow', sans-serif" }}
+                    placeholder="Escribile un comentario al atleta…" value={draft} onChange={(e) => setDraft(e.target.value)} />
+                  {commentErr && <div className="box-error" style={{ marginTop: 6 }}>{commentErr}</div>}
+                  <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                    <button className="box-btn box-btn-primary" style={{ padding: "5px 12px", fontSize: 13 }} onClick={() => sendComment(n.id)}><Check size={13} /> Enviar</button>
+                    <button className="box-btn box-btn-ghost" style={{ padding: "5px 12px", fontSize: 13 }} onClick={() => { setOpenCommentFor(null); setDraft(""); setCommentErr(""); }}><X size={13} /></button>
+                  </div>
+                </div>
+              ) : (
+                <button className="box-btn box-btn-ghost" style={{ margin: "2px 0 8px 12px", padding: "3px 10px", fontSize: 12 }}
+                  onClick={() => { setOpenCommentFor(n.id); setDraft(""); setCommentErr(""); }}>
+                  Comentar
+                </button>
+              ))}
             </div>
-            <span>{formatResultValue(n)} <span className="box-muted">({n.scaling})</span></span>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -3098,6 +3543,22 @@ function CoachAthletes({ user }) {
   }, [user.username]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Actividad reciente de todos los atletas (panel "Quién entrenó hoy").
+  const [activity, setActivity] = useState(null);
+  useEffect(() => {
+    if (!athletes) return;
+    if (athletes.length === 0) { setActivity({}); return; }
+    db.listAthletesActivity(athletes.map((x) => x.id)).then(setActivity).catch(() => setActivity(false));
+  }, [athletes]);
+  const summaries = useMemo(() => {
+    const map = {};
+    if (!activity || !athletes) return map;
+    athletes.forEach((x) => { map[x.id] = summarizeActivity(activity[x.id]); });
+    return map;
+  }, [activity, athletes]);
+  const trainedToday = (athletes || []).filter((x) => summaries[x.id] && summaries[x.id].todayItems.length > 0);
+  const notYetToday = (athletes || []).filter((x) => summaries[x.id] && summaries[x.id].todayItems.length === 0);
 
   useEffect(() => {
     if (!athletes) return;
@@ -3124,7 +3585,7 @@ function CoachAthletes({ user }) {
   };
 
   if (selected) {
-    return <AthleteDetail athlete={selected} onBack={() => setSelected(null)} onUnlink={unlinkAthlete} />;
+    return <AthleteDetail athlete={selected} user={user} onBack={() => setSelected(null)} onUnlink={unlinkAthlete} />;
   }
 
   return (
@@ -3140,6 +3601,27 @@ function CoachAthletes({ user }) {
           <StatChip icon={Users} value={athletes.length} label="Atletas vinculados" tint="amber" />
           <StatChip icon={CheckCircle2} value={teamStats ? teamStats.totalThisMonth : "…"} label="WODs del equipo este mes" tint="olive" />
           <StatChip icon={AlertTriangle} value={teamStats ? teamStats.inactive.length : "…"} label="Sin actividad (7+ días)" tint="rust" />
+        </div>
+      )}
+
+      {athletes && athletes.length > 0 && activity && (
+        <div className="box-card" style={{ marginBottom: 18, borderLeft: "3px solid var(--amber)" }}>
+          <h3 className="box-h3" style={{ marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+            <Flame size={14} color="var(--amber)" /> Quién entrenó hoy
+            <span className="box-muted" style={{ fontWeight: 400 }}>· {trainedToday.length} de {athletes.length}</span>
+          </h3>
+          {trainedToday.length === 0 && <p className="box-muted">Todavía nadie registró entrenamiento hoy.</p>}
+          {trainedToday.map((x) => (
+            <div className="rm-row" key={x.id} style={{ cursor: "pointer" }} onClick={() => setSelected(x)}>
+              <span><b>{x.name}</b> <span className="box-badge" style={{ marginLeft: 6 }}>{modalityLabel(x.modality)}</span></span>
+              <span className="box-muted" style={{ textAlign: "right", fontSize: 12 }}>{summaries[x.id].todayItems.join(" · ")}</span>
+            </div>
+          ))}
+          {notYetToday.length > 0 && (
+            <div className="box-muted" style={{ marginTop: 10, fontSize: 13 }}>
+              Todavía no entrenaron: {notYetToday.map((x) => x.name).join(", ")}
+            </div>
+          )}
         </div>
       )}
 
@@ -3172,7 +3654,10 @@ function CoachAthletes({ user }) {
                   {a.name}
                   {a.role === "coach" && <span className="box-badge" style={{ marginLeft: 8, background: "var(--amber-dim)", color: "var(--amber)" }}>Coach</span>}
                 </div>
-                <div className="box-muted">{a.username}</div>
+                <div className="box-muted">
+                  {a.username} · {modalityLabel(a.modality)}
+                  {summaries[a.id] ? ` · ${daysAgoLabel(summaries[a.id].lastKey)}` : ""}
+                </div>
               </div>
             </div>
             <button className="box-btn box-btn-primary" onClick={() => setSelected(a)}>Ver ficha</button>
@@ -3363,6 +3848,19 @@ function RoutineEditor({ user }) {
       {showForm && (
         <div className="box-card" style={{ marginBottom: 18 }}>
           <h3 className="box-h3" style={{ marginBottom: 10 }}>{editingId ? "Editar rutina" : "Nueva rutina"}</h3>
+          <TemplateBar
+            coachId={user.id}
+            kind="routine"
+            filter={(t) => !t.data.modality || t.data.modality === modality}
+            getData={() => ({
+              modality, splitLabel: formSplit,
+              exercises: formExercises.filter((e) => e.name.trim()).map((e) => ({ name: e.name.trim(), sets: e.sets || "", reps: e.reps || "", note: e.note || "" })),
+            })}
+            onApply={(d) => {
+              if (d.splitLabel && ROUTINE_SPLITS[modality].includes(d.splitLabel)) setFormSplit(d.splitLabel);
+              setFormExercises(d.exercises && d.exercises.length ? d.exercises.map((e) => ({ name: e.name || "", sets: e.sets || "", reps: e.reps || "", note: e.note || "" })) : [{ name: "", sets: "", reps: "", note: "" }]);
+            }}
+          />
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
             <div style={{ width: 170 }}>
               <label className="box-label">Día de la semana</label>
@@ -3469,10 +3967,9 @@ function RoutineEditor({ user }) {
 
 /* ============================== RUTINAS (GAP / Musculación) — ATLETA ============================== */
 
-function RoutineToday({ user, onCoachesReload }) {
+function RoutineToday({ user, onCoachesReload, sourceKey, onSourceChange }) {
   const coaches = user.coaches || [];
-  const [coachIdx, setCoachIdx] = useState(0);
-  const activeCoach = coaches[coachIdx] || null;
+  const activeCoach = coaches.find((c) => c.username === sourceKey) || coaches[0] || null;
   const [routines, setRoutines] = useState(null);
   const [completions, setCompletions] = useState([]);
   const [checked, setChecked] = useState({});
@@ -3508,6 +4005,7 @@ function RoutineToday({ user, onCoachesReload }) {
 
   const saveLog = async (exerciseName) => {
     if (!logWeight) { setLogging(null); return; }
+    await checkRmPR(user.id, exerciseName, logWeight, "kg");
     await db.addRmRecord(user.id, { exercise: exerciseName, weight: Number(logWeight), unit: "kg", date: key, note: "" });
     setLogWeight("");
     setLogging(null);
@@ -3533,8 +4031,8 @@ function RoutineToday({ user, onCoachesReload }) {
 
       {coaches.length > 1 && (
         <div style={{ display: "flex", gap: 6, marginBottom: 18, flexWrap: "wrap" }}>
-          {coaches.map((c, i) => (
-            <button key={c.username} className={`box-tabbtn ${coachIdx === i ? "active" : ""}`} onClick={() => setCoachIdx(i)}>{c.name}</button>
+          {coaches.map((c) => (
+            <button key={c.username} className={`box-tabbtn ${activeCoach && activeCoach.username === c.username ? "active" : ""}`} onClick={() => onSourceChange && onSourceChange(c.username)}>{c.name}</button>
           ))}
         </div>
       )}
@@ -3909,6 +4407,19 @@ export default function App() {
   const [checkingSession, setCheckingSession] = useState(true);
   const [passwordRecovery, setPasswordRecovery] = useState(false);
   const [screen, setScreen] = useState("wod");
+  // Coach/plan seleccionado por el atleta: se mantiene al cambiar de pantalla
+  // y también al recargar la app (respaldo en el navegador, sin romper si no está disponible).
+  const [sourceKey, setSourceKeyState] = useState(null);
+  const sourceStorageKey = user ? `stampede:source:${user.id}` : null;
+  useEffect(() => {
+    if (!sourceStorageKey) { setSourceKeyState(null); return; }
+    try { setSourceKeyState(window.localStorage.getItem(sourceStorageKey)); } catch (e) { /* sin storage: queda en memoria */ }
+  }, [sourceStorageKey]);
+  const setSourceKey = (k, opts) => {
+    setSourceKeyState(k);
+    // el valor por defecto automático no se guarda; solo lo que el atleta elige a mano
+    if (sourceStorageKey && k && !(opts && opts.auto)) { try { window.localStorage.setItem(sourceStorageKey, k); } catch (e) { /* ignorar */ } }
+  };
 
   const attachCoaches = async (baseUser) => {
     if (!baseUser) return null;
@@ -3971,6 +4482,7 @@ export default function App() {
   return (
     <div className="box-app">
       <GlobalStyle />
+      <PRBanner />
       <div className="box-topstripe" />
       {!user ? (
         <AuthScreen onLogin={(u) => attachCoaches(u).then(setUser)} />
@@ -3998,7 +4510,7 @@ export default function App() {
             <div className="box-main">
               {isCrossfit ? (
                 <>
-                  {screen === "wod" && <WodBoard user={user} onUserUpdate={updateUser} onCoachesReload={reloadCoaches} />}
+                  {screen === "wod" && <WodBoard user={user} onUserUpdate={updateUser} onCoachesReload={reloadCoaches} sourceKey={sourceKey} onSourceChange={setSourceKey} />}
                   {screen === "rm" && <RmTracker user={user} />}
                   {screen === "stats" && <StatsScreen user={user} />}
                   {screen === "routines" && user.role === "coach" && <RoutineEditor user={user} />}
@@ -4011,7 +4523,7 @@ export default function App() {
                 </>
               ) : isRoutineModality ? (
                 <>
-                  {screen === "wod" && <RoutineToday user={user} onCoachesReload={reloadCoaches} />}
+                  {screen === "wod" && <RoutineToday user={user} onCoachesReload={reloadCoaches} sourceKey={sourceKey} onSourceChange={setSourceKey} />}
                   {screen === "rm" && <ProgresoScreen user={user} />}
                 </>
               ) : (
