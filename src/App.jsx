@@ -709,11 +709,11 @@ function StampedeLoaderAnim() {
   return (
     <div style={{ textAlign: "center" }}>
       <style>{`
-        @keyframes stampede-run { from { transform: translateX(300px); } to { transform: translateX(-130px); } }
+        @keyframes stampede-run { from { transform: translateX(-130px); } to { transform: translateX(300px); } }
         @keyframes stampede-pose-a { 0%, 24.99% { opacity: 1; } 25%, 100% { opacity: 0; } }
         @keyframes stampede-pose-b { 0%, 24.99% { opacity: 0; } 25%, 49.99% { opacity: 1; } 50%, 74.99% { opacity: 0; } 75%, 100% { opacity: 1; } }
         @keyframes stampede-pose-c { 0%, 49.99% { opacity: 0; } 50%, 74.99% { opacity: 1; } 75%, 100% { opacity: 0; } }
-        @keyframes stampede-dust { from { transform: translateX(300px); opacity: .0; } 20% { opacity: .35; } to { transform: translateX(-130px); opacity: 0; } }
+        @keyframes stampede-dust { from { transform: translateX(-130px); opacity: 0; } 80% { opacity: .35; } to { transform: translateX(300px); opacity: 0; } }
       `}</style>
       <svg width="0" height="0" style={{ position: "absolute" }} aria-hidden="true">
         <defs>
@@ -750,7 +750,7 @@ function StampedeLoaderAnim() {
         })}
         {[14, 30, 46].map((t, i) => (
           <div key={t} style={{
-            position: "absolute", top: t, left: 60 + i * 14, width: 34 - i * 6, height: 2, borderRadius: 1,
+            position: "absolute", top: t, left: 0, width: 34 - i * 6, height: 2, borderRadius: 1,
             background: "var(--amber)", animation: `stampede-dust ${1.6 + i * 0.25}s linear infinite`, animationDelay: `${i * 0.3}s`,
           }} />
         ))}
