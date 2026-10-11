@@ -1,0 +1,12 @@
+{
+  "name": "Stampede",
+  "short_name": "Stampede",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0d1417",
+  "theme_color": "#0d1417",
+  "icons": [
+    { "src": "/icon-192-v7.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512-v7.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
