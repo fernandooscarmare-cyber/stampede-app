@@ -1729,6 +1729,10 @@ function WodBoard({ user, onUserUpdate, onCoachesReload, sourceKey, onSourceChan
   const [formWod, setFormWod] = useState("");
   const [formExtra, setFormExtra] = useState("");
   const [formError, setFormError] = useState("");
+  const [formAudienceMode, setFormAudienceMode] = useState("all");
+  const [formAudience, setFormAudience] = useState([]);
+  const [myAthletes, setMyAthletes] = useState([]);
+  const [saving, setSaving] = useState(false);
 
   const [showImport, setShowImport] = useState(false);
   const [importUrl, setImportUrl] = useState("");
@@ -1762,6 +1766,10 @@ function WodBoard({ user, onUserUpdate, onCoachesReload, sourceKey, onSourceChan
   useEffect(() => {
     if (isCoach) db.getCoachSheetUrl(user.id).then(setImportUrl);
   }, [isCoach, user.id]);
+
+  useEffect(() => {
+    if (isCoach) db.listMyAthletes(user.username).then(setMyAthletes).catch(() => {});
+  }, [isCoach, user.username]);
 
   const loadWods = useCallback(async () => {
     if (!planOwnerId) { setLoading(false); setRawWods([]); return; }
@@ -1829,7 +1837,12 @@ function WodBoard({ user, onUserUpdate, onCoachesReload, sourceKey, onSourceChan
     await loadResults();
   };
 
+  // Si el coach estaba mirando el plan de otro coach, vuelve a "Mi planificación" para poder crear.
+  const goOwnPlan = () => { if (isCoach && !canEdit) onSourceChange && onSourceChange("own", { auto: true }); };
+
   const openNewForm = () => {
+    goOwnPlan();
+    setFormAudienceMode("all"); setFormAudience([]);
     setEditingId(null);
     setFormDate(filterDate || todayKey());
     setFormTipo("For Time");
@@ -1846,6 +1859,8 @@ function WodBoard({ user, onUserUpdate, onCoachesReload, sourceKey, onSourceChan
     setFormSkillType(row.skillType || "Gimnástico"); setFormSkillContent(row.skillContent || "");
     setFormEstructura(row.estructura || ""); setFormWod(row.wod || ""); setFormExtra(row.extraNotes || "");
     setFormError("");
+    setFormAudienceMode(row.audience && row.audience.length ? "some" : "all");
+    setFormAudience(row.audience || []);
     setShowForm(true); setShowImport(false);
   };
 
@@ -1853,15 +1868,23 @@ function WodBoard({ user, onUserUpdate, onCoachesReload, sourceKey, onSourceChan
     setFormError("");
     if (!formDate) { setFormError("La fecha es obligatoria."); return; }
     if (!formWod.trim()) { setFormError("Completá el WOD antes de guardar."); return; }
+    if (formAudienceMode === "some" && formAudience.length === 0) { setFormError("Elegí al menos un atleta, o poné \"Todos mis atletas\"."); return; }
     const payload = {
+      audience: formAudienceMode === "some" ? formAudience : [],
       dateKey: formDate, tipo: formTipo, movilidad: formMovilidad.trim(), core: formCore.trim(),
       skillType: formSkillType, skillContent: formSkillContent.trim(), estructura: formEstructura.trim(),
       wod: formWod.trim(), extraNotes: formExtra.trim(),
     };
-    if (editingId) await db.updateWod(editingId, payload);
-    else await db.createWod(user.id, payload);
-    await loadWods();
-    setShowForm(false);
+    setSaving(true);
+    try {
+      if (editingId) await db.updateWod(editingId, payload);
+      else await db.createWod(user.id, payload);
+      await loadWods();
+      setShowForm(false);
+    } catch (e) {
+      setFormError(e && e.message ? `No se pudo guardar: ${e.message}` : "No se pudo guardar el WOD. Probá de nuevo.");
+    }
+    setSaving(false);
   };
 
   const deleteWod = async (id) => {
@@ -1941,7 +1964,7 @@ function WodBoard({ user, onUserUpdate, onCoachesReload, sourceKey, onSourceChan
         </div>
         {isCoach && (
           <div style={{ display: "flex", gap: 8 }}>
-            <button className="icon-btn-circle" title="Importar desde Google Sheet" onClick={() => { setShowImport((s) => !s); setShowForm(false); }}><Upload size={15} /></button>
+            <button className="icon-btn-circle" title="Importar desde Google Sheet" onClick={() => { goOwnPlan(); setShowImport((s) => !s); setShowForm(false); }}><Upload size={15} /></button>
             <button className="box-btn box-btn-primary" onClick={openNewForm}><Plus size={14} /> Nuevo WOD</button>
           </div>
         )}
@@ -2003,6 +2026,36 @@ function WodBoard({ user, onUserUpdate, onCoachesReload, sourceKey, onSourceChan
           </div>
 
           <div className="box-field">
+            <label className="box-label">¿Para quién es?</label>
+            <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+              <button type="button" className={`box-tabbtn ${formAudienceMode === "all" ? "active" : ""}`} onClick={() => setFormAudienceMode("all")}>Todos mis atletas</button>
+              <button type="button" className={`box-tabbtn ${formAudienceMode === "some" ? "active" : ""}`} onClick={() => setFormAudienceMode("some")}>Atletas específicos</button>
+            </div>
+            {formAudienceMode === "some" && (
+              myAthletes.length === 0 ? (
+                <p className="box-muted">Todavía no tenés atletas vinculados.</p>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 220, overflowY: "auto", background: "var(--panel-2)", padding: 10, borderRadius: 10 }}>
+                  {myAthletes.map((a) => {
+                    const on = formAudience.includes(a.id);
+                    return (
+                      <label key={a.id} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", padding: "4px 2px" }}>
+                        <input type="checkbox" checked={on}
+                          onChange={() => setFormAudience((cur) => (on ? cur.filter((x) => x !== a.id) : [...cur, a.id]))} />
+                        <span>{a.name}</span>
+                      </label>
+                    );
+                  })}
+                  <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+                    <button type="button" className="box-btn box-btn-ghost" style={{ padding: "3px 10px", fontSize: 12 }} onClick={() => setFormAudience(myAthletes.map((a) => a.id))}>Marcar todos</button>
+                    <button type="button" className="box-btn box-btn-ghost" style={{ padding: "3px 10px", fontSize: 12 }} onClick={() => setFormAudience([])}>Ninguno</button>
+                  </div>
+                </div>
+              )
+            )}
+          </div>
+
+          <div className="box-field">
             <label className="box-label">Movilidad (opcional)</label>
             <textarea className="box-input" rows={2} style={{ resize: "vertical", fontFamily: "'Barlow', sans-serif" }}
               placeholder="Ej: 5 min banda + hip openers" value={formMovilidad} onChange={(e) => setFormMovilidad(e.target.value)} />
@@ -2051,7 +2104,7 @@ function WodBoard({ user, onUserUpdate, onCoachesReload, sourceKey, onSourceChan
           </div>
           {formError && <div className="box-error" style={{ marginBottom: 10 }}>{formError}</div>}
           <div style={{ display: "flex", gap: 8 }}>
-            <button className="box-btn box-btn-primary" onClick={submitForm}><Check size={14} /> Guardar</button>
+            <button className="box-btn box-btn-primary" onClick={submitForm} disabled={saving}><Check size={14} /> {saving ? "Guardando…" : "Guardar"}</button>
             <button className="box-btn box-btn-ghost" onClick={() => setShowForm(false)}><X size={14} /> Cancelar</button>
           </div>
         </div>
@@ -2143,6 +2196,11 @@ function WodBoard({ user, onUserUpdate, onCoachesReload, sourceKey, onSourceChan
                   <div>
                     <span className="wod-type">{row.tipo}</span>
                     {isToday && <span className="box-badge" style={{ marginLeft: 8, background: "var(--amber)", color: "#0a1412", borderLeft: "none" }}>HOY</span>}
+                    {canEdit && row.audience && row.audience.length > 0 && (
+                      <span className="box-badge" style={{ marginLeft: 8 }} title={myAthletes.filter((a) => row.audience.includes(a.id)).map((a) => a.name).join(", ")}>
+                        Solo {row.audience.length} {row.audience.length === 1 ? "atleta" : "atletas"}
+                      </span>
+                    )}
                   </div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>

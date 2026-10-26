@@ -246,7 +246,34 @@ function mapWodRow(w) {
     wod: w.wod_content,
     extraNotes: w.extra_notes || "",
     originWodId: w.origin_wod_id || null,
+    audience: [],
   };
+}
+
+// A quién va dirigido cada WOD (vacío = todos). Si la migración v8 no está, devuelve {}.
+async function loadAudiences(wodIds) {
+  if (!wodIds.length) return {};
+  try {
+    const { data, error } = await supabase.from("wod_audience").select("wod_id, athlete_id").in("wod_id", wodIds);
+    if (error) return {};
+    const map = {};
+    (data || []).forEach((r) => { (map[r.wod_id] = map[r.wod_id] || []).push(r.athlete_id); });
+    return map;
+  } catch (e) {
+    return {};
+  }
+}
+
+async function saveAudience(wodId, athleteIds) {
+  const { error: delErr } = await supabase.from("wod_audience").delete().eq("wod_id", wodId);
+  if (delErr) {
+    if (!athleteIds || !athleteIds.length) return; // sin v8 y para todos: no hay nada que guardar
+    throw new Error("Para elegir atletas hace falta correr el SQL v8 en Supabase.");
+  }
+  if (athleteIds && athleteIds.length) {
+    const { error } = await supabase.from("wod_audience").insert(athleteIds.map((id) => ({ wod_id: wodId, athlete_id: id })));
+    if (error) throw new Error("Para elegir atletas hace falta correr el SQL v8 en Supabase.");
+  }
 }
 
 export async function listWods(coachId) {
@@ -257,7 +284,10 @@ export async function listWods(coachId) {
     .eq("coach_id", coachId)
     .order("wod_date", { ascending: false });
   if (error) throw error;
-  return (data || []).map(mapWodRow);
+  const list = (data || []).map(mapWodRow);
+  const aud = await loadAudiences(list.map((w) => w.id));
+  list.forEach((w) => { w.audience = aud[w.id] || []; });
+  return list;
 }
 
 export async function createWod(coachId, payload) {
@@ -279,7 +309,18 @@ export async function createWod(coachId, payload) {
     .select()
     .single();
   if (error) throw error;
-  return mapWodRow(data);
+  const row = mapWodRow(data);
+  const aud = payload.audience || [];
+  if (aud.length) {
+    try { await saveAudience(row.id, aud); }
+    catch (e) {
+      // Sin audiencia guardada el WOD quedaría visible para todos: lo borramos y avisamos.
+      await supabase.from("wods").delete().eq("id", row.id);
+      throw e;
+    }
+    row.audience = aud;
+  }
+  return row;
 }
 
 export async function updateWod(id, payload) {
@@ -301,7 +342,12 @@ export async function updateWod(id, payload) {
     .select()
     .single();
   if (error) throw error;
-  return mapWodRow(data);
+  const row = mapWodRow(data);
+  if (payload.audience !== undefined) {
+    await saveAudience(id, payload.audience || []);
+    row.audience = payload.audience || [];
+  }
+  return row;
 }
 
 export async function deleteWod(id) {
